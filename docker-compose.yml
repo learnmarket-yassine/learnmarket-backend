@@ -1,0 +1,70 @@
+services:
+  # ==========================================
+  # PostgreSQL 16
+  # ==========================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: learnmarket-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: learnmarket
+      POSTGRES_PASSWORD: dev_password
+      POSTGRES_DB: learnmarket
+      # Encodage UTF-8 pour supporter tous les caractères (français, arabe, etc.)
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U learnmarket -d learnmarket"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - learnmarket-network
+
+  # ==========================================
+  # Redis 7 (pour cache et BullMQ plus tard)
+  # ==========================================
+  redis:
+    image: redis:7-alpine
+    container_name: learnmarket-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - learnmarket-network
+
+  # ==========================================
+  # Adminer (interface web pour Postgres)
+  # ==========================================
+  adminer:
+    image: adminer:latest
+    container_name: learnmarket-adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+    networks:
+      - learnmarket-network
+
+volumes:
+  postgres_data:
+    name: learnmarket_postgres_data
+  redis_data:
+    name: learnmarket_redis_data
+
+networks:
+  learnmarket-network:
+    name: learnmarket-network
+    driver: bridge
