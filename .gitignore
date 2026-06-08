@@ -16,12 +16,10 @@ build/
 
 # Environment variables (SECRETS!)
 .env
-.env.local
-.env.development
-.env.production
-.env.staging
+.env.*
 .env.*.local
-
+!.env.example
+!.env.docker.example
 # IDE
 .idea/
 .vscode/*
@@ -30,7 +28,6 @@ build/
 .DS_Store
 *.swp
 *.swo
-.vscode/
 
 # Logs
 logs/
@@ -43,11 +40,9 @@ coverage/
 
 # Prisma (les migrations sont versionnées, mais le client généré non)
 prisma/generated/
-prisma/migrations/dev/
 
 # Docker
 *.tar
-docker-data/
 
 # OS
 Thumbs.db
