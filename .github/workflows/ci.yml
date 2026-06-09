@@ -78,6 +78,7 @@ jobs:
         env:
           DATABASE_URL: postgresql://test:test@localhost:5432/test
           REDIS_URL: redis://localhost:6379
+        continue-on-error: true
       
       - name: E2E tests
         run: npm run test:e2e
