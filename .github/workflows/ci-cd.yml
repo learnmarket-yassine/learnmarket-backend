@@ -184,7 +184,7 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           port: 22
           timeout: 300s
-          command_timeout: 10m
+          command_timeout: 15m
           script: |
             set -e
             
@@ -193,34 +193,48 @@ jobs:
             
             cd /opt/learnmarket
             
-            # Sauvegarder l'image actuelle pour rollback
             CURRENT_IMAGE=$(docker-compose images api -q 2>/dev/null || echo "none")
             echo "Current image ID: $CURRENT_IMAGE"
             
-            # Pull la nouvelle image
             echo "Pulling new image..."
             docker-compose pull api
             
-            # Lancer les migrations
             echo "Running database migrations..."
-            docker-compose run --rm api npx prisma migrate deploy
+            if ! docker-compose run --rm api npx prisma migrate deploy; then
+              echo "Migrations failed"
+              exit 1
+            fi
+            echo "Migrations applied"
             
-            # Recréer le conteneur api avec la nouvelle image
             echo "Restarting api container..."
             docker-compose up -d --force-recreate api
             
-            # Attendre que le healthcheck passe (max 60s)
+            # Wait for healthcheck (max 180s = 60 iterations × 3s)
             echo "Waiting for healthcheck..."
-            for i in {1..30}; do
-              STATUS=$(docker-compose ps api --format json | jq -r '.[0].Health // "unknown"' 2>/dev/null || echo "unknown")
+            MAX_ATTEMPTS=60
+            for i in $(seq 1 $MAX_ATTEMPTS); do
+              STATUS=$(docker inspect --format='{{.State.Health.Status}}' learnmarket-api 2>/dev/null || echo "unknown")
+              
+              echo "  Attempt $i/$MAX_ATTEMPTS - Status: $STATUS"
+              
               if [ "$STATUS" = "healthy" ]; then
-                echo "Healthcheck passed"
+                echo "Healthcheck passed after ${i}0s"
                 break
               fi
-              if [ $i -eq 30 ]; then
-                echo "Healthcheck failed after 60s"
+              
+              if [ "$STATUS" = "unhealthy" ]; then
+                echo "Container marked unhealthy, last check output:"
+                docker inspect --format='{{range .State.Health.Log}}{{.Output}}{{end}}' learnmarket-api | tail -c 500
+              fi
+              
+              if [ $i -eq $MAX_ATTEMPTS ]; then
+                echo "Healthcheck failed after 180s"
+                echo "=== Last 50 lines of logs ==="
+                docker-compose logs api --tail 50
+                echo ""
+                echo "=== Healthcheck history ==="
+                docker inspect --format='{{json .State.Health}}' learnmarket-api
                 
-                # Rollback : revenir à l'image précédente
                 if [ "$CURRENT_IMAGE" != "none" ]; then
                   echo "Rolling back to previous image..."
                   docker tag $CURRENT_IMAGE ${{ env.DOCKER_IMAGE }}:rollback
@@ -229,11 +243,10 @@ jobs:
                 
                 exit 1
               fi
-              echo "  Waiting... ($i/30)"
-              sleep 2
+              
+              sleep 3
             done
             
-            # Cleanup des vieilles images
             echo "Cleaning up old images..."
             docker image prune -af --filter "until=72h" || true
             
