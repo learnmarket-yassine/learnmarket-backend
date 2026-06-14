@@ -194,25 +194,25 @@ jobs:
             cd /opt/learnmarket
             
             # Sauvegarder l'image actuelle pour rollback
-            CURRENT_IMAGE=$(docker compose images api -q 2>/dev/null || echo "none")
+            CURRENT_IMAGE=$(docker-compose images api -q 2>/dev/null || echo "none")
             echo "Current image ID: $CURRENT_IMAGE"
             
             # Pull la nouvelle image
             echo "Pulling new image..."
-            docker compose pull api
+            docker-compose pull api
             
             # Lancer les migrations
             echo "Running database migrations..."
-            docker compose run --rm api npx prisma migrate deploy
+            docker-compose run --rm api npx prisma migrate deploy
             
             # Recréer le conteneur api avec la nouvelle image
             echo "Restarting api container..."
-            docker compose up -d --force-recreate api
+            docker-compose up -d --force-recreate api
             
             # Attendre que le healthcheck passe (max 60s)
             echo "Waiting for healthcheck..."
             for i in {1..30}; do
-              STATUS=$(docker compose ps api --format json | jq -r '.[0].Health // "unknown"' 2>/dev/null || echo "unknown")
+              STATUS=$(docker-compose ps api --format json | jq -r '.[0].Health // "unknown"' 2>/dev/null || echo "unknown")
               if [ "$STATUS" = "healthy" ]; then
                 echo "Healthcheck passed"
                 break
@@ -224,7 +224,7 @@ jobs:
                 if [ "$CURRENT_IMAGE" != "none" ]; then
                   echo "Rolling back to previous image..."
                   docker tag $CURRENT_IMAGE ${{ env.DOCKER_IMAGE }}:rollback
-                  docker compose up -d --force-recreate api
+                  docker-compose up -d --force-recreate api
                 fi
                 
                 exit 1
