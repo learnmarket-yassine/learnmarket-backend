@@ -7,6 +7,7 @@ export interface HealthStatus {
   uptime: number;
   environment: string;
   version: string;
+  message: string;
   checks: {
     database: 'ok' | 'down';
   };
@@ -24,6 +25,7 @@ export class HealthService {
     return {
       status: overallStatus,
       timestamp: new Date().toISOString(),
+      message: 'LearnMarket API - Auto Deploy Test!',
       uptime: process.uptime(),
       environment: process.env.NODE_ENV || 'development',
       version: process.env.npm_package_version || '0.0.1',
