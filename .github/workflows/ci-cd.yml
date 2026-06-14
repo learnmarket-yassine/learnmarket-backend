@@ -158,3 +158,127 @@ jobs:
           echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
           echo "docker pull ${{ env.DOCKER_IMAGE }}:${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+  
+  # ==========================================
+  # JOB 3: Deploy to Dev Environment
+  # ==========================================
+  deploy-dev:
+    name: Deploy to Dev (auto)
+    runs-on: ubuntu-latest
+    needs: [build-and-push]
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    
+    environment:
+      name: dev
+      url: https://api.35.181.181.115.nip.io
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          timeout: 300s
+          command_timeout: 10m
+          script: |
+            set -e
+            
+            echo "Starting deployment..."
+            echo "Image: ${{ env.DOCKER_IMAGE }}:develop"
+            
+            cd /opt/learnmarket
+            
+            # Sauvegarder l'image actuelle pour rollback
+            CURRENT_IMAGE=$(docker compose images api -q 2>/dev/null || echo "none")
+            echo "Current image ID: $CURRENT_IMAGE"
+            
+            # Pull la nouvelle image
+            echo "Pulling new image..."
+            docker compose pull api
+            
+            # Lancer les migrations
+            echo "Running database migrations..."
+            docker compose run --rm api npx prisma migrate deploy
+            
+            # Recréer le conteneur api avec la nouvelle image
+            echo "Restarting api container..."
+            docker compose up -d --force-recreate api
+            
+            # Attendre que le healthcheck passe (max 60s)
+            echo "Waiting for healthcheck..."
+            for i in {1..30}; do
+              STATUS=$(docker compose ps api --format json | jq -r '.[0].Health // "unknown"' 2>/dev/null || echo "unknown")
+              if [ "$STATUS" = "healthy" ]; then
+                echo "Healthcheck passed"
+                break
+              fi
+              if [ $i -eq 30 ]; then
+                echo "Healthcheck failed after 60s"
+                
+                # Rollback : revenir à l'image précédente
+                if [ "$CURRENT_IMAGE" != "none" ]; then
+                  echo "Rolling back to previous image..."
+                  docker tag $CURRENT_IMAGE ${{ env.DOCKER_IMAGE }}:rollback
+                  docker compose up -d --force-recreate api
+                fi
+                
+                exit 1
+              fi
+              echo "  Waiting... ($i/30)"
+              sleep 2
+            done
+            
+            # Cleanup des vieilles images
+            echo "Cleaning up old images..."
+            docker image prune -af --filter "until=72h" || true
+            
+            echo "Deployment successful!"
+      
+      - name: Verify deployment
+        run: |
+          echo "Verifying API is accessible..."
+          
+          for i in {1..10}; do
+            RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" https://api.35.181.181.115.nip.io/api/v1/health || echo "000")
+            
+            if [ "$RESPONSE" = "200" ]; then
+              echo "API responding with 200"
+              
+              # Vérifier que le contenu est OK
+              HEALTH=$(curl -s https://api.35.181.181.115.nip.io/api/v1/health)
+              echo "Health check response: $HEALTH"
+              exit 0
+            fi
+            
+            echo "  Attempt $i/10: got HTTP $RESPONSE, retrying..."
+            sleep 3
+          done
+          
+          echo "API not responding after 30s"
+          exit 1
+      
+      - name: Deployment summary
+        if: success()
+        run: |
+          echo "###Deployment Successful" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** Dev" >> $GITHUB_STEP_SUMMARY
+          echo "**URL:** https://api.35.181.181.115.nip.io" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** \`${{ env.DOCKER_IMAGE }}:${{ needs.build-and-push.outputs.image-tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Digest:** \`${{ needs.build-and-push.outputs.image-digest }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** [\`${{ github.sha }}\`](${{ github.event.head_commit.url }})" >> $GITHUB_STEP_SUMMARY
+          echo "**Author:** @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+      
+      - name: Deployment failed summary
+        if: failure()
+        run: |
+          echo "### Deployment Failed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Check the logs above for details." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The previous version has been restored if rollback was possible." >> $GITHUB_STEP_SUMMARY
