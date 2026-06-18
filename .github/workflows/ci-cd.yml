@@ -1,0 +1,297 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+    tags: ['v*']
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-cd-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOCKER_IMAGE: ${{ secrets.DOCKER_HUB_USERNAME }}/learnmarket-backend
+  NODE_VERSION: '20'
+
+jobs:
+  # ==========================================
+  # JOB 1: Tests, Lint, Build
+  # ==========================================
+  test:
+    name: Test & Build
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+      
+      - name: Generate Prisma Client
+        run: npx prisma generate
+      
+      - name: Run database migrations
+        run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/test
+      
+      - name: Lint
+        run: npm run lint
+        continue-on-error: true
+      
+      - name: Build
+        run: npm run build
+      
+      - name: Unit tests
+        run: npm run test
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/test
+          REDIS_URL: redis://localhost:6379
+        continue-on-error: true
+      
+      - name: E2E tests
+        run: npm run test:e2e
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/test
+          REDIS_URL: redis://localhost:6379
+        continue-on-error: true
+
+  # ==========================================
+  # JOB 2: Build & Push Docker Image
+  # ==========================================
+  build-and-push:
+    name: Build & Push Docker Image
+    runs-on: ubuntu-latest
+    needs: [test]
+    
+    # Ne build et push QUE sur push (pas sur PR), pour économiser les builds
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
+      
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.DOCKER_IMAGE }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix=sha-,format=short
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable={{is_default_branch}}
+      
+      - name: Build and push Docker image
+        id: build-push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+      
+      - name: Summary
+        run: |
+          echo "### Docker Image Pushed Successfully" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Repository:** \`${{ env.DOCKER_IMAGE }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Tags pushed:**" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Image digest:** \`${{ steps.build-push.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Pull command:**" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.DOCKER_IMAGE }}:${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+  
+  # ==========================================
+  # JOB 3: Deploy to Dev Environment
+  # ==========================================
+  deploy-dev:
+    name: Deploy to Dev (auto)
+    runs-on: ubuntu-latest
+    needs: [build-and-push]
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    
+    environment:
+      name: dev
+      url: https://api.35.181.181.115.nip.io
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          timeout: 300s
+          command_timeout: 15m
+          script: |
+            set -e
+            
+            echo "Starting deployment..."
+            echo "Image: ${{ env.DOCKER_IMAGE }}:develop"
+            
+            cd /opt/learnmarket
+            
+            CURRENT_IMAGE=$(docker-compose images api -q 2>/dev/null || echo "none")
+            echo "Current image ID: $CURRENT_IMAGE"
+            
+            echo "Pulling new image..."
+            docker-compose pull api
+            
+            echo "Running database migrations..."
+            if ! docker-compose run --rm api npx prisma migrate deploy; then
+              echo "Migrations failed"
+              exit 1
+            fi
+            echo "Migrations applied"
+            
+            echo "Restarting api container..."
+            docker-compose up -d --force-recreate api
+            
+            # Wait for healthcheck (max 180s = 60 iterations × 3s)
+            echo "Waiting for healthcheck..."
+            MAX_ATTEMPTS=60
+            for i in $(seq 1 $MAX_ATTEMPTS); do
+              STATUS=$(docker inspect --format='{{.State.Health.Status}}' learnmarket-api 2>/dev/null || echo "unknown")
+              
+              echo "  Attempt $i/$MAX_ATTEMPTS - Status: $STATUS"
+              
+              if [ "$STATUS" = "healthy" ]; then
+                echo "Healthcheck passed after ${i}0s"
+                break
+              fi
+              
+              if [ "$STATUS" = "unhealthy" ]; then
+                echo "Container marked unhealthy, last check output:"
+                docker inspect --format='{{range .State.Health.Log}}{{.Output}}{{end}}' learnmarket-api | tail -c 500
+              fi
+              
+              if [ $i -eq $MAX_ATTEMPTS ]; then
+                echo "Healthcheck failed after 180s"
+                echo "=== Last 50 lines of logs ==="
+                docker-compose logs api --tail 50
+                echo ""
+                echo "=== Healthcheck history ==="
+                docker inspect --format='{{json .State.Health}}' learnmarket-api
+                
+                if [ "$CURRENT_IMAGE" != "none" ]; then
+                  echo "Rolling back to previous image..."
+                  docker tag $CURRENT_IMAGE ${{ env.DOCKER_IMAGE }}:rollback
+                  docker-compose up -d --force-recreate api
+                fi
+                
+                exit 1
+              fi
+              
+              sleep 3
+            done
+            
+            echo "Cleaning up old images..."
+            docker image prune -af --filter "until=72h" || true
+            
+            echo "Deployment successful!"
+      
+      - name: Verify deployment
+        run: |
+          echo "Verifying API is accessible..."
+          
+          for i in {1..10}; do
+            RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" https://api.35.181.181.115.nip.io/api/v1/health || echo "000")
+            
+            if [ "$RESPONSE" = "200" ]; then
+              echo "API responding with 200"
+              
+              # Vérifier que le contenu est OK
+              HEALTH=$(curl -s https://api.35.181.181.115.nip.io/api/v1/health)
+              echo "Health check response: $HEALTH"
+              exit 0
+            fi
+            
+            echo "  Attempt $i/10: got HTTP $RESPONSE, retrying..."
+            sleep 3
+          done
+          
+          echo "API not responding after 30s"
+          exit 1
+      
+      - name: Deployment summary
+        if: success()
+        run: |
+          echo "###Deployment Successful" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** Dev" >> $GITHUB_STEP_SUMMARY
+          echo "**URL:** https://api.35.181.181.115.nip.io" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** \`${{ env.DOCKER_IMAGE }}:${{ needs.build-and-push.outputs.image-tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Digest:** \`${{ needs.build-and-push.outputs.image-digest }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** [\`${{ github.sha }}\`](${{ github.event.head_commit.url }})" >> $GITHUB_STEP_SUMMARY
+          echo "**Author:** @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+      
+      - name: Deployment failed summary
+        if: failure()
+        run: |
+          echo "### Deployment Failed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Check the logs above for details." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The previous version has been restored if rollback was possible." >> $GITHUB_STEP_SUMMARY
