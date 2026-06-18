@@ -1,4 +1,4 @@
-FROM node:20-alpine AS builder
+FROM node:26-alpine AS builder
 
 RUN apk add --no-cache libc6-compat openssl python3 make g++
 
@@ -14,7 +14,7 @@ COPY . .
 RUN npx prisma generate
 RUN npm run build
 
-FROM node:20-alpine AS prod-deps
+FROM node:26-alpine AS prod-deps
 
 RUN apk add --no-cache libc6-compat openssl python3 make g++
 
@@ -27,7 +27,7 @@ RUN npm ci --omit=dev --no-audit --no-fund && \
     npx prisma generate && \
     npm cache clean --force
 
-FROM node:20-alpine AS runner
+FROM node:26-alpine AS runner
 
 RUN apk add --no-cache libc6-compat openssl curl tini
 
