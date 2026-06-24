@@ -1,5 +1,5 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
   binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
 }
 
@@ -15,20 +15,37 @@ enum UserRole {
 }
 
 model User {
-  id              String   @id @default(uuid())
-  email           String   @unique
-  password        String   @map("password")
-  unverifiedEmail String?  @map("unverified_email")
-  firstname       String   @map("firstname")
-  lastname        String   @map("lastname")
+  id              String         @id @default(uuid())
+  email           String         @unique
+  password        String         @map("password")
+  unverifiedEmail String?        @map("unverified_email")
+  firstname       String         @map("firstname")
+  lastname        String         @map("lastname")
   avatar          String?
   location        String
   phone           String?
-  role            UserRole @default(LEARNER)
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+  role            UserRole       @default(LEARNER)
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+  refreshTokens   RefreshToken[]
 
   @@index([email])
   @@index([role])
   @@map("users")
+}
+
+model RefreshToken {
+  id         String    @id @default(uuid())
+  tokenHash  String    @unique
+  userId     String
+  deviceId   String // identifies a device — one active session per device
+  deviceName String? // display label for the sessions list ("iPhone 14")
+  revoked    Boolean   @default(false)
+  revokedAt  DateTime?
+  expiresAt  DateTime
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }

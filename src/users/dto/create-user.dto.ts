@@ -8,22 +8,23 @@ import {
 import { UserRole } from '@prisma/client';
 
 export class CreateUserDto {
-  @IsEmail({}, { message: 'Email must be valid' })
+  @IsEmail()
   email!: string;
 
   @IsString()
-  @MinLength(8, { message: 'Password must be at least 8 characters' })
+  @MinLength(8)
   password!: string;
 
-  @IsOptional()
   @IsString()
-  firstName?: string;
+  firstname!: string;
+
+  @IsString()
+  lastname!: string;
+
+  @IsString()
+  location!: string;
 
   @IsOptional()
-  @IsString()
-  lastName?: string;
-
-  @IsOptional()
-  @IsEnum(UserRole, { message: 'Role must be LEARNER, TUTOR, or ADMIN' })
+  @IsEnum(UserRole)
   role?: UserRole;
 }
