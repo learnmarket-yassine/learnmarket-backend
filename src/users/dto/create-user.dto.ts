@@ -1,28 +1,45 @@
+/* eslint-disable @typescript-eslint/no-unsafe-return */
+import { UserRole } from '@prisma/client';
 import {
   IsEmail,
   IsEnum,
+  IsNotEmpty,
   IsOptional,
   IsString,
-  MinLength,
+  IsStrongPassword,
+  MaxLength,
 } from 'class-validator';
-import { UserRole } from '@prisma/client';
+import { Transform } from 'class-transformer';
 
 export class CreateUserDto {
   @IsEmail()
+  @IsNotEmpty()
+  @MaxLength(255)
+  @Transform(({ value }) => value?.toLowerCase().trim())
   email!: string;
 
   @IsString()
-  @MinLength(8)
+  @IsNotEmpty()
+  @IsStrongPassword({
+    minLength: 8,
+    minLowercase: 1,
+    minUppercase: 1,
+    minNumbers: 1,
+    minSymbols: 1,
+  })
   password!: string;
 
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  @Transform(({ value }) => value?.trim())
   firstname!: string;
 
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  @Transform(({ value }) => value?.trim())
   lastname!: string;
-
-  @IsString()
-  location!: string;
 
   @IsOptional()
   @IsEnum(UserRole)

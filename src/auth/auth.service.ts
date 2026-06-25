@@ -12,8 +12,8 @@ import { Prisma, User } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { addDays, generateSecureToken, hashToken } from './utils/token.util';
-import { CreateUserDto } from '../users/dto/create-user.dto';
 import { StringValue } from 'ms';
+import { SignupDto } from './dto/signup.dto';
 export interface TokenPair {
   accessToken: string;
   refreshToken: string;
@@ -29,17 +29,17 @@ export class AuthService {
     private readonly config: ConfigService,
   ) {}
 
-  async register(
-    createUserDto: CreateUserDto,
+  async signup(
+    signupUserDto: SignupDto,
   ): Promise<{ id: string; email: string }> {
-    const existing = await this.users.findByEmail(createUserDto.email);
+    const existing = await this.users.findByEmail(signupUserDto.email);
     if (existing) {
       throw new ConflictException('Email already in use');
     }
 
-    const passwordHash = await argon2.hash(createUserDto.password);
+    const passwordHash = await argon2.hash(signupUserDto.password);
     const user = await this.users.create({
-      ...createUserDto,
+      ...signupUserDto,
       password: passwordHash,
     });
 

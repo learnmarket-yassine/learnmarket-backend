@@ -22,7 +22,7 @@ model User {
   firstname       String         @map("firstname")
   lastname        String         @map("lastname")
   avatar          String?
-  location        String
+  location        String?
   phone           String?
   role            UserRole       @default(LEARNER)
   createdAt       DateTime       @default(now()) @map("created_at")
