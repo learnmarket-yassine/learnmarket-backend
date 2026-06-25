@@ -195,21 +195,21 @@ jobs:
 
             cd /opt/learnmarket
 
-            CURRENT_IMAGE=$(docker-compose images api -q 2>/dev/null || echo "none")
+            CURRENT_IMAGE=$(docker compose images api -q 2>/dev/null || echo "none")
             echo "Current image ID: $CURRENT_IMAGE"
 
             echo "Pulling new image..."
-            docker-compose pull api
+            docker compose pull api
 
             echo "Running database migrations..."
-            if ! docker-compose run --rm api npx prisma migrate deploy; then
+            if ! docker compose run --rm api npx prisma migrate deploy; then
               echo "Migrations failed"
               exit 1
             fi
             echo "Migrations applied"
 
             echo "Restarting api container..."
-            docker-compose up -d --force-recreate api
+            docker compose up -d --force-recreate api
 
             echo "Waiting for healthcheck..."
             MAX_ATTEMPTS=60
@@ -231,7 +231,7 @@ jobs:
               if [ $i -eq $MAX_ATTEMPTS ]; then
                 echo "Healthcheck failed after 180s"
                 echo "=== Last 50 lines of logs ==="
-                docker-compose logs api --tail 50
+                docker compose logs api --tail 50
                 echo ""
                 echo "=== Healthcheck history ==="
                 docker inspect --format='{{json .State.Health}}' learnmarket-api
@@ -239,7 +239,7 @@ jobs:
                 if [ "$CURRENT_IMAGE" != "none" ]; then
                   echo "Rolling back to previous image..."
                   docker tag $CURRENT_IMAGE ${{ env.DOCKER_IMAGE }}:rollback
-                  docker-compose up -d --force-recreate api
+                  docker compose up -d --force-recreate api
                 fi
                 
                 exit 1
@@ -329,21 +329,21 @@ jobs:
 
             cd /opt/learnmarket
 
-            CURRENT_IMAGE=$(docker-compose images api -q 2>/dev/null || echo "none")
+            CURRENT_IMAGE=$(docker compose images api -q 2>/dev/null || echo "none")
             echo "Current image ID: $CURRENT_IMAGE"
 
             echo "Pulling new image..."
-            docker-compose pull api
+            docker compose pull api
 
             echo "Running database migrations..."
-            if ! docker-compose run --rm api npx prisma migrate deploy; then
+            if ! docker compose run --rm api npx prisma migrate deploy; then
               echo "Migrations failed"
               exit 1
             fi
             echo "Migrations applied"
 
             echo "Restarting api container..."
-            docker-compose up -d --force-recreate api
+            docker compose up -d --force-recreate api
 
             echo "Waiting for healthcheck..."
             MAX_ATTEMPTS=60
@@ -365,7 +365,7 @@ jobs:
               if [ $i -eq $MAX_ATTEMPTS ]; then
                 echo "Healthcheck failed after 180s"
                 echo "=== Last 50 lines of logs ==="
-                docker-compose logs api --tail 50
+                docker compose logs api --tail 50
                 echo ""
                 echo "=== Healthcheck history ==="
                 docker inspect --format='{{json .State.Health}}' learnmarket-api
@@ -373,7 +373,7 @@ jobs:
                 if [ "$CURRENT_IMAGE" != "none" ]; then
                   echo "Rolling back to previous image..."
                   docker tag $CURRENT_IMAGE ${{ env.DOCKER_IMAGE }}:rollback
-                  docker-compose up -d --force-recreate api
+                  docker compose up -d --force-recreate api
                 fi
                 
                 exit 1
