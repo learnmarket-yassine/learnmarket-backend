@@ -20,10 +20,10 @@ import {
   CurrentUser,
   type AuthUser,
 } from '../common/decorators/current-user.decorator';
-import { CreateUserDto } from '../users/dto/create-user.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { LogoutDto } from './dto/logout.dto';
+import { SignupDto } from './dto/signup.dto';
 
 const REFRESH_COOKIE = 'refresh_token';
 
@@ -37,9 +37,9 @@ export class AuthController {
   // --- Registration & login -------------------------------------------------
 
   @Public()
-  @Post('register')
-  register(@Body() dto: CreateUserDto) {
-    return this.auth.register(dto);
+  @Post('signup')
+  signup(@Body() dto: SignupDto) {
+    return this.auth.signup(dto);
   }
 
   @Public()
