@@ -31,19 +31,21 @@ export class AuthService {
 
   async signup(
     signupUserDto: SignupDto,
-  ): Promise<{ id: string; email: string }> {
+  ): Promise<{ id: string; email: string; role: string }> {
     const existing = await this.users.findByEmail(signupUserDto.email);
     if (existing) {
       throw new ConflictException('Email already in use');
     }
 
     const passwordHash = await argon2.hash(signupUserDto.password);
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { confirmPassword, ...userData } = signupUserDto;
     const user = await this.users.create({
-      ...signupUserDto,
+      ...userData,
       password: passwordHash,
     });
 
-    return { id: user.id, email: user.email };
+    return { id: user.id, email: user.email, role: user.role };
   }
 
   async login(

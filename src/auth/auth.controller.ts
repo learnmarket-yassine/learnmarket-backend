@@ -56,7 +56,9 @@ export class AuthController {
       dto.deviceName,
     );
     this.setRefreshCookie(res, tokens.refreshToken);
-    return tokens;
+    return {
+      token: tokens.accessToken,
+    };
   }
 
   // --- Refresh --------------------------------------------------------------
@@ -72,7 +74,9 @@ export class AuthController {
     const rawToken = this.extractRefreshToken(req, dto.refreshToken);
     const tokens = await this.auth.refresh(rawToken);
     this.setRefreshCookie(res, tokens.refreshToken);
-    return tokens;
+    return {
+      token: tokens.accessToken,
+    };
   }
 
   // --- Logout ---------------------------------------------------------------
@@ -141,12 +145,13 @@ export class AuthController {
 
   private setRefreshCookie(res: Response, token: string): void {
     const days = this.config.get<number>('REFRESH_TOKEN_EXPIRES_DAYS', 7);
+    const isProd = this.config.get<string>('NODE_ENV') === 'production';
     res.cookie(REFRESH_COOKIE, token, {
       httpOnly: true,
-      secure: this.config.get<boolean>('COOKIE_SECURE', false),
-      sameSite: 'strict',
-      domain: this.config.get<string>('COOKIE_DOMAIN'),
-      path: '/auth',
+      secure: isProd,
+      sameSite: isProd ? 'none' : 'lax',
+      domain: isProd ? this.config.get<string>('COOKIE_DOMAIN') : undefined,
+      path: '/',
       maxAge: days * 24 * 60 * 60 * 1000,
     });
   }
