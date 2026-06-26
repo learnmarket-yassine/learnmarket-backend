@@ -150,7 +150,7 @@ export class AuthController {
       httpOnly: true,
       secure: isProd,
       sameSite: isProd ? 'none' : 'lax',
-      domain: isProd ? this.config.get<string>('COOKIE_DOMAIN') : undefined,
+      domain: undefined,
       path: '/',
       maxAge: days * 24 * 60 * 60 * 1000,
     });
