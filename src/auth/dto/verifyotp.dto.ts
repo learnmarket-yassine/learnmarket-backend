@@ -3,13 +3,12 @@ import { Transform } from 'class-transformer';
 import {
   IsEmail,
   IsNotEmpty,
-  IsOptional,
   IsString,
+  Length,
   MaxLength,
-  MinLength,
 } from 'class-validator';
 
-export class LoginDto {
+export class VerifyOtpDto {
   @IsEmail()
   @IsNotEmpty()
   @MaxLength(255)
@@ -18,15 +17,6 @@ export class LoginDto {
 
   @IsString()
   @IsNotEmpty()
-  @MinLength(8)
-  password!: string;
-
-  @IsOptional()
-  @IsString()
-  deviceId?: string;
-
-  /** Human-friendly label shown in the sessions list, e.g. "iPhone 14". */
-  @IsOptional()
-  @IsString()
-  deviceName?: string;
+  @Length(6, 6, { message: 'OTP must be exactly 6 digits' })
+  otp!: string;
 }

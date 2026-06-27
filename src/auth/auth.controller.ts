@@ -24,6 +24,9 @@ import { LoginDto } from './dto/login.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { LogoutDto } from './dto/logout.dto';
 import { SignupDto } from './dto/signup.dto';
+import { ForgotPasswordDto } from './dto/Forgot.dto';
+import { ResetPasswordDto } from './dto/Reset.dto';
+import { VerifyOtpDto } from './dto/verifyotp.dto';
 
 const REFRESH_COOKIE = 'refresh_token';
 
@@ -128,6 +131,27 @@ export class AuthController {
     return user;
   }
 
+  // --- Password reset --------------------------------------------------------------
+  @Public()
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.OK)
+  forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.auth.forgotPassword(dto.email);
+  }
+
+  @Public()
+  @Post('verify-otp')
+  @HttpCode(HttpStatus.OK)
+  verifyOtp(@Body() dto: VerifyOtpDto) {
+    return this.auth.verifyOtp(dto.email, dto.otp);
+  }
+
+  @Public()
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.auth.resetPassword(dto.resetToken, dto.newPassword);
+  }
   // --- Helpers --------------------------------------------------------------
 
   /** Web sends the token via httpOnly cookie; mobile sends it in the body. */
