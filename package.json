@@ -37,7 +37,7 @@
     "@nestjs/platform-express": "^11.0.1",
     "@prisma/client": "6.19.0",
     "@sentry/nestjs": "^10.57.0",
-    "@sentry/profiling-node": "^10.57.0",
+    "@sentry/profiling-node": "^10.60.0",
     "argon2": "^0.44.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
