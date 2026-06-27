@@ -14,11 +14,28 @@ import { UsersService } from '../users/users.service';
 import { addDays, generateSecureToken, hashToken } from './utils/token.util';
 import { StringValue } from 'ms';
 import { SignupDto } from './dto/signup.dto';
+import * as crypto from 'crypto';
+import { EmailService } from '../email/email.service';
+import { RedisService } from '../redis/redis.service';
+
 export interface TokenPair {
   accessToken: string;
   refreshToken: string;
   deviceId: string;
 }
+interface ResetTokenPayload {
+  sub: string;
+  purpose: 'password-reset';
+  email: string;
+}
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+const OTP_TTL = 15 * 60;
+const RESET_TOKEN_TTL = 15 * 60;
+
+// ── Redis key builders ────────────────────────────────────────────────────────
+const otpKey = (userId: string) => `otp:password-reset:${userId}`;
+const resetTokenKey = (userId: string) => `reset-token:${userId}`;
 
 @Injectable()
 export class AuthService {
@@ -27,6 +44,8 @@ export class AuthService {
     private readonly users: UsersService,
     private readonly jwtService: JwtService,
     private readonly config: ConfigService,
+    private readonly email: EmailService,
+    private readonly redis: RedisService,
   ) {}
 
   async signup(
@@ -181,6 +200,95 @@ export class AuthService {
   }
 
   // ---------------------------------------------------------------------------
+  // Forgot Password
+  // ---------------------------------------------------------------------------
+  async forgotPassword(email: string): Promise<{ message: string }> {
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      return { message: 'If that email exists, an OTP has been sent.' };
+    }
+
+    // Generate 6-digit OTP and hash it before storing
+    const otp = crypto.randomInt(100_000, 999_999).toString();
+    const otpHash = await argon2.hash(otp);
+
+    await this.redis.set(otpKey(user.id), otpHash, OTP_TTL);
+
+    await this.email.sendPasswordResetEmail({
+      email: user.email,
+      otp,
+      name: `${user.lastname} ${user.firstname}`,
+    });
+
+    return { message: 'If that email exists, an OTP has been sent.' };
+  }
+  // ---------------------------------------------------------------------------
+  // Verify OTP
+  // ---------------------------------------------------------------------------
+  async verifyOtp(email: string, otp: string): Promise<{ resetToken: string }> {
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (!user) throw new UnauthorizedException('Invalid or expired OTP.');
+
+    // Fetch hash from Redis
+    const storedHash = await this.redis.get(otpKey(user.id));
+    if (!storedHash) throw new UnauthorizedException('Invalid or expired OTP.');
+
+    // Verify
+    const isValid = await argon2.verify(storedHash, otp);
+    if (!isValid) throw new UnauthorizedException('Invalid or expired OTP.');
+
+    // Consume OTP — deleted immediately so it can't be reused
+    await this.redis.delete(otpKey(user.id));
+
+    // Issue a short-lived JWT reset token
+    const resetToken = this.signResetToken(user);
+
+    // Store token in Redis — acts as a whitelist (single-use enforcement)
+    await this.redis.set(resetTokenKey(user.id), resetToken, RESET_TOKEN_TTL);
+
+    return { resetToken };
+  }
+  // ---------------------------------------------------------------------------
+  // Reset password
+  // ---------------------------------------------------------------------------
+  async resetPassword(
+    resetToken: string,
+    newPassword: string,
+  ): Promise<{ message: string }> {
+    let payload: ResetTokenPayload;
+    try {
+      payload = this.jwtService.verify<ResetTokenPayload>(resetToken, {
+        secret: this.config.get<string>('JWT_RESET_SECRET'),
+      });
+    } catch {
+      throw new UnauthorizedException('Invalid or expired reset token.');
+    }
+    if (payload.purpose !== 'password-reset') {
+      throw new UnauthorizedException('Invalid token purpose.');
+    }
+    const storedToken = await this.redis.get(resetTokenKey(payload.sub));
+    if (!storedToken || storedToken !== resetToken) {
+      throw new UnauthorizedException('Reset token already used or expired.');
+    }
+    //Consume token immediately (single-use)
+    await this.redis.delete(resetTokenKey(payload.sub));
+    //Update password and revoke all sessions in one transaction
+    const passwordHash = await argon2.hash(newPassword);
+
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: payload.sub },
+        data: { password: passwordHash },
+      }),
+      this.prisma.refreshToken.updateMany({
+        where: { userId: payload.sub, revoked: false },
+        data: { revoked: true, revokedAt: new Date() },
+      }),
+    ]);
+
+    return { message: 'Password reset successfully.' };
+  }
+  // ---------------------------------------------------------------------------
   // Internals
   // ---------------------------------------------------------------------------
 
@@ -245,6 +353,19 @@ export class AuthService {
         secret: this.config.get<string>('JWT_ACCESS_SECRET'),
         expiresIn: this.config.get<StringValue>(
           'JWT_ACCESS_EXPIRES_IN',
+          '15m' as StringValue,
+        ),
+      },
+    );
+  }
+
+  private signResetToken(user: User): string {
+    return this.jwtService.sign(
+      { sub: user.id, email: user.email, purpose: 'password-reset' },
+      {
+        secret: this.config.get<string>('JWT_RESET_SECRET'),
+        expiresIn: this.config.get<StringValue>(
+          'JWT_RESET_EXPIRES_IN',
           '15m' as StringValue,
         ),
       },

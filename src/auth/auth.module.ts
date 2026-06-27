@@ -5,10 +5,18 @@ import { UsersModule } from '../users/users.module';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { JwtStrategy } from './strategies/jwt.strategy';
+import { EmailModule } from '../email/email.module';
+import { RedisModule } from '../redis/redis.module';
 
 @Module({
   providers: [AuthService, JwtStrategy],
   controllers: [AuthController],
-  imports: [UsersModule, JwtModule.register({}), PassportModule],
+  imports: [
+    UsersModule,
+    JwtModule.register({}),
+    PassportModule,
+    EmailModule,
+    RedisModule,
+  ],
 })
 export class AuthModule {}

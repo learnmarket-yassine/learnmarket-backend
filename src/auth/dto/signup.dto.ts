@@ -8,24 +8,9 @@ import {
   IsString,
   IsStrongPassword,
   MaxLength,
-  ValidatorConstraint,
-  ValidatorConstraintInterface,
-  ValidationArguments,
-  Validate,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
-
-@ValidatorConstraint({ name: 'MatchPassword' })
-class MatchPasswordConstraint implements ValidatorConstraintInterface {
-  validate(confirmPassword: string, args: ValidationArguments): boolean {
-    const dto = args.object as SignupDto;
-    return confirmPassword === dto.password;
-  }
-
-  defaultMessage(): string {
-    return 'Passwords do not match';
-  }
-}
+import { Match } from '../../common/decorators/match.decorator';
 
 export class SignupDto {
   @IsEmail()
@@ -59,7 +44,14 @@ export class SignupDto {
 
   @IsString()
   @IsNotEmpty()
-  @Validate(MatchPasswordConstraint)
+  @IsStrongPassword({
+    minLength: 8,
+    minLowercase: 1,
+    minUppercase: 1,
+    minNumbers: 1,
+    minSymbols: 1,
+  })
+  @Match('password', { message: 'Passwords do not match' })
   confirmPassword!: string;
 
   @IsOptional()
