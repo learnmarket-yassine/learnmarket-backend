@@ -14,6 +14,13 @@ enum UserRole {
   ADMIN
 }
 
+enum LanguageLevel {
+  BASIC
+  CONVERSATIONAL
+  FLUENT
+  NATIVE_OR_BILINGUAL
+}
+
 model User {
   id              String         @id @default(uuid())
   email           String         @unique
@@ -25,9 +32,11 @@ model User {
   location        String?
   phone           String?
   role            UserRole       @default(LEARNER)
+  isOnlineForMsg  Boolean        @default(false) @map("is_online_for_msg")
   createdAt       DateTime       @default(now()) @map("created_at")
   updatedAt       DateTime       @updatedAt @map("updated_at")
   refreshTokens   RefreshToken[]
+  tutorProfile    TutorProfile?
 
   @@index([email])
   @@index([role])
@@ -48,4 +57,115 @@ model RefreshToken {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+model TutorProfile {
+  id     String @id @default(uuid())
+  userId String @unique @map("user_id")
+
+  headline   String?
+  hourlyRate Decimal? @map("hourly_rate") @db.Decimal(10, 2)
+  bio        String?  @db.Text
+
+  hoursPerWeek  String? @map("hours_per_week")
+  videoIntroUrl String? @map("video_intro_url")
+
+  isVerified Boolean @default(false) @map("is_verified")
+  connects   Int     @default(0)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  languages      ProfileLanguage[]
+  education      Education[]
+  skills         ProfileSkill[]
+  portfolio      PortfolioItem[]
+  certifications Certification[]
+  employment     Employment[]
+
+  @@map("tutor_profiles")
+}
+
+model ProfileLanguage {
+  id        String        @id @default(uuid())
+  profileId String        @map("profile_id")
+  language  String
+  level     LanguageLevel
+
+  profile TutorProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId])
+  @@map("profile_languages")
+}
+
+model Education {
+  id           String  @id @default(uuid())
+  profileId    String  @map("profile_id")
+  institution  String
+  degree       String?
+  fieldOfStudy String? @map("field_of_study")
+  startYear    Int?    @map("start_year")
+  endYear      Int?    @map("end_year")
+
+  profile TutorProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId])
+  @@map("education")
+}
+
+model ProfileSkill {
+  id        String @id @default(uuid())
+  profileId String @map("profile_id")
+  label     String
+
+  profile TutorProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId])
+  @@map("profile_skills")
+}
+
+model PortfolioItem {
+  id          String   @id @default(uuid())
+  profileId   String   @map("profile_id")
+  title       String
+  description String?  @db.Text
+  imageUrl    String?  @map("image_url")
+  projectUrl  String?  @map("project_url")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  profile TutorProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId])
+  @@map("portfolio_items")
+}
+
+model Certification {
+  id            String    @id @default(uuid())
+  profileId     String    @map("profile_id")
+  title         String
+  issuer        String
+  issuedAt      DateTime? @map("issued_at")
+  expiresAt     DateTime? @map("expires_at")
+  credentialUrl String?   @map("credential_url")
+
+  profile TutorProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId])
+  @@map("certifications")
+}
+
+model Employment {
+  id          String    @id @default(uuid())
+  profileId   String    @map("profile_id")
+  jobTitle    String    @map("job_title")
+  company     String
+  description String?   @db.Text
+  startDate   DateTime  @map("start_date")
+  endDate     DateTime? @map("end_date")
+
+  profile TutorProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId])
+  @@map("employment")
 }
