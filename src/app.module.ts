@@ -11,6 +11,7 @@ import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { EmailModule } from './email/email.module';
 import { RedisModule } from './redis/redis.module';
+import { TutorModule } from './tutor/tutor.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { RedisModule } from './redis/redis.module';
     AuthModule,
     EmailModule,
     RedisModule,
+    TutorModule,
   ],
   controllers: [AppController],
   providers: [
