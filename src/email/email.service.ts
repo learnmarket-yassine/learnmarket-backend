@@ -29,8 +29,10 @@ export class EmailService {
       const { sender, receivers, subject, params } = mailData;
 
       const templatePath = path.join(
-        process.cwd(),
-        'src/email/templates',
+        __dirname,
+        '..',
+        'email',
+        'templates',
         `${template}.twig`,
       );
 
