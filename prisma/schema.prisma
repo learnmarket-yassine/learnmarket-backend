@@ -29,8 +29,9 @@ model User {
   firstname       String         @map("firstname")
   lastname        String         @map("lastname")
   avatar          String?
-  location        String?
-  phone           String?
+  headline        String?
+  bio             String?        @db.Text
+  country         String?
   role            UserRole       @default(LEARNER)
   isOnlineForMsg  Boolean        @default(false) @map("is_online_for_msg")
   createdAt       DateTime       @default(now()) @map("created_at")
@@ -60,29 +61,25 @@ model RefreshToken {
 }
 
 model TutorProfile {
-  id     String @id @default(uuid())
-  userId String @unique @map("user_id")
-
-  headline   String?
-  hourlyRate Decimal? @map("hourly_rate") @db.Decimal(10, 2)
-  bio        String?  @db.Text
-
-  hoursPerWeek  String? @map("hours_per_week")
-  videoIntroUrl String? @map("video_intro_url")
-
-  isVerified Boolean @default(false) @map("is_verified")
-  connects   Int     @default(0)
+  id            String   @id @default(uuid())
+  userId        String   @unique @map("user_id")
+  hourlyRate    Decimal? @map("hourly_rate") @db.Decimal(10, 2)
+  hoursPerWeek  String?  @map("hours_per_week")
+  videoIntroUrl String?  @map("video_intro_url")
+  isVerified    Boolean  @default(false) @map("is_verified")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  languages      ProfileLanguage[]
-  education      Education[]
-  skills         ProfileSkill[]
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  languages ProfileLanguage[]
+  education Education[]
+  skills    String[]          @default([]) @map("skills")
+
   portfolio      PortfolioItem[]
   certifications Certification[]
   employment     Employment[]
+  profileSkills  ProfileSkill[]
 
   @@map("tutor_profiles")
 }
@@ -156,13 +153,19 @@ model Certification {
 }
 
 model Employment {
-  id          String    @id @default(uuid())
-  profileId   String    @map("profile_id")
-  jobTitle    String    @map("job_title")
+  id        String @id @default(uuid())
+  profileId String @map("profile_id")
+
+  jobTitle    String  @map("job_title")
   company     String
-  description String?   @db.Text
-  startDate   DateTime  @map("start_date")
-  endDate     DateTime? @map("end_date")
+  description String? @db.Text
+
+  city    String?
+  country String?
+
+  startDate DateTime  @map("start_date")
+  endDate   DateTime? @map("end_date")
+  current   Boolean   @default(false)
 
   profile TutorProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
 

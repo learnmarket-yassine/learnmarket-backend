@@ -7,7 +7,6 @@ import { PrismaService } from '../prisma/prisma.service';
 const TUTOR_PROFILE_INCLUDE = {
   languages: true,
   education: true,
-  skills: true,
   portfolio: true,
   certifications: true,
   employment: true,
@@ -19,9 +18,10 @@ const PROFILE_SELECT = {
   firstname: true,
   lastname: true,
   avatar: true,
-  location: true,
-  phone: true,
+  headline: true,
+  bio: true,
   role: true,
+  country: true,
   isOnlineForMsg: true,
   createdAt: true,
   updatedAt: true,
@@ -50,11 +50,9 @@ export class UsersService {
   }
 
   private isProfileCompleted(
-    user: Pick<User, 'role'> & {
+    user: Pick<User, 'role' | 'headline' | 'bio'> & {
       tutorProfile: {
-        headline: string | null;
         hourlyRate: unknown;
-        bio: string | null;
         skills: unknown[];
         education: unknown[];
         languages: unknown[];
@@ -63,27 +61,28 @@ export class UsersService {
   ): boolean {
     switch (user.role) {
       case UserRole.TUTOR:
-        return this.isTutorProfileCompleted(user.tutorProfile);
+        return this.isTutorProfileCompleted(user);
       default:
         return true;
     }
   }
 
-  private isTutorProfileCompleted(
-    profile: {
-      headline: string | null;
+  private isTutorProfileCompleted(user: {
+    headline: string | null;
+    bio: string | null;
+    tutorProfile: {
       hourlyRate: unknown;
-      bio: string | null;
       skills: unknown[];
       education: unknown[];
       languages: unknown[];
-    } | null,
-  ): boolean {
+    } | null;
+  }): boolean {
+    const profile = user.tutorProfile;
     return !!(
+      user.headline &&
+      user.bio &&
       profile &&
-      profile.headline &&
       profile.hourlyRate != null &&
-      profile.bio &&
       profile.skills.length > 0 &&
       profile.education.length > 0 &&
       profile.languages.length > 0
@@ -96,6 +95,15 @@ export class UsersService {
 
   findById(id: string): Promise<User | null> {
     return this.prisma.user.findUnique({ where: { id } });
+  }
+
+  async findByIdSafe(id: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      select: PROFILE_SELECT,
+    });
+    if (!user) throw new NotFoundException('User not found');
+    return user;
   }
 
   update(id: string, updateUserDto: UpdateUserDto): Promise<User> {

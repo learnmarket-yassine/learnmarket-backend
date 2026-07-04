@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsDateString,
   IsNotEmpty,
   IsOptional,
@@ -19,6 +20,17 @@ export class CreateEmploymentDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(100)
+  city?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  country?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(5000)
   description?: string;
 
   @IsDateString()
@@ -27,4 +39,8 @@ export class CreateEmploymentDto {
   @IsOptional()
   @IsDateString()
   endDate?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  current?: boolean;
 }
