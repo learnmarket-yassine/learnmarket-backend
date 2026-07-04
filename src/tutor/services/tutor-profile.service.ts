@@ -11,7 +11,6 @@ import { UpdateProfileDto } from '../dto/profile/update-profile.dto';
 const PROFILE_INCLUDE = {
   languages: true,
   education: true,
-  skills: true,
   portfolio: true,
   certifications: true,
   employment: true,

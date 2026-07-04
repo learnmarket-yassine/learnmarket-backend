@@ -1,4 +1,6 @@
 import {
+  ArrayMaxSize,
+  IsArray,
   IsNumber,
   IsOptional,
   IsString,
@@ -7,30 +9,26 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import { Type } from 'class-transformer';
 
 export class UpdateProfileDto {
-  @IsOptional()
-  @IsString()
-  @MaxLength(200)
-  headline?: string;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber({ maxDecimalPlaces: 2 })
-  @Min(0)
-  @Max(9_999_999.99)
-  hourlyRate?: number;
-
-  @IsOptional()
-  @IsString()
-  bio?: string;
-
   @IsOptional()
   @IsString()
   hoursPerWeek?: string;
 
   @IsOptional()
   @IsUrl()
-  videoIntroUrl?: string;
+  videoIntroUrl?: string | null;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  @MaxLength(30, { each: true })
+  skills?: string[];
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(10000)
+  hourlyRate?: number;
 }
