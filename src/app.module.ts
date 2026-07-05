@@ -12,6 +12,7 @@ import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { EmailModule } from './email/email.module';
 import { RedisModule } from './redis/redis.module';
 import { TutorModule } from './tutor/tutor.module';
+import { StorageModule } from './storage/storage.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { TutorModule } from './tutor/tutor.module';
     EmailModule,
     RedisModule,
     TutorModule,
+    StorageModule,
   ],
   controllers: [AppController],
   providers: [

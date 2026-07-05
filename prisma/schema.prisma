@@ -22,22 +22,30 @@ enum LanguageLevel {
 }
 
 model User {
-  id              String         @id @default(uuid())
-  email           String         @unique
-  password        String         @map("password")
-  unverifiedEmail String?        @map("unverified_email")
-  firstname       String         @map("firstname")
-  lastname        String         @map("lastname")
-  avatar          String?
-  headline        String?
-  bio             String?        @db.Text
-  country         String?
-  role            UserRole       @default(LEARNER)
-  isOnlineForMsg  Boolean        @default(false) @map("is_online_for_msg")
-  createdAt       DateTime       @default(now()) @map("created_at")
-  updatedAt       DateTime       @updatedAt @map("updated_at")
-  refreshTokens   RefreshToken[]
-  tutorProfile    TutorProfile?
+  id               String         @id @default(uuid())
+  email            String         @unique
+  password         String         @map("password")
+  unverifiedEmail  String?        @map("unverified_email")
+  firstname        String         @map("firstname")
+  lastname         String         @map("lastname")
+  avatar           String?        @map("avatar_key")
+  headline         String?
+  bio              String?        @db.Text
+  phone            String?        @unique @map("phone")
+  phoneCountryCode String?        @map("phone_country_code")
+  dateOfBirth      DateTime?      @map("date_of_birth")
+  country          String?
+  address          String?
+  city             String?
+  state            String?
+  postalCode       String?        @map("postal_code")
+  role             UserRole       @default(LEARNER)
+  isOnlineForMsg   Boolean        @default(false) @map("is_online_for_msg")
+  onboardingStep   Int            @default(1) @map("onboarding_step")
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+  refreshTokens    RefreshToken[]
+  tutorProfile     TutorProfile?
 
   @@index([email])
   @@index([role])
@@ -127,14 +135,27 @@ model PortfolioItem {
   profileId   String   @map("profile_id")
   title       String
   description String?  @db.Text
-  imageUrl    String?  @map("image_url")
   projectUrl  String?  @map("project_url")
   createdAt   DateTime @default(now()) @map("created_at")
 
-  profile TutorProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  profile TutorProfile     @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  images  PortfolioImage[]
 
   @@index([profileId])
   @@map("portfolio_items")
+}
+
+model PortfolioImage {
+  id              String   @id @default(uuid())
+  portfolioItemId String   @map("portfolio_item_id")
+  key             String // S3 object key
+  position        Int      @default(0)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  portfolioItem PortfolioItem @relation(fields: [portfolioItemId], references: [id], onDelete: Cascade)
+
+  @@index([portfolioItemId])
+  @@map("portfolio_images")
 }
 
 model Certification {
@@ -146,10 +167,25 @@ model Certification {
   expiresAt     DateTime? @map("expires_at")
   credentialUrl String?   @map("credential_url")
 
-  profile TutorProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  profile TutorProfile        @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  files   CertificationFile[]
 
   @@index([profileId])
   @@map("certifications")
+}
+
+model CertificationFile {
+  id              String   @id @default(uuid())
+  certificationId String   @map("certification_id")
+  key             String // S3 object key
+  fileName        String?  @map("file_name")
+  mimeType        String?  @map("mime_type")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  certification Certification @relation(fields: [certificationId], references: [id], onDelete: Cascade)
+
+  @@index([certificationId])
+  @@map("certification_files")
 }
 
 model Employment {
@@ -167,8 +203,22 @@ model Employment {
   endDate   DateTime? @map("end_date")
   current   Boolean   @default(false)
 
-  profile TutorProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  profile      TutorProfile            @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  certificates EmploymentCertificate[]
 
   @@index([profileId])
   @@map("employment")
+}
+
+model EmploymentCertificate {
+  id           String   @id @default(uuid())
+  employmentId String   @map("employment_id")
+  key          String
+  fileName     String?  @map("file_name")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  employment Employment @relation(fields: [employmentId], references: [id], onDelete: Cascade)
+
+  @@index([employmentId])
+  @@map("employment_certificates")
 }

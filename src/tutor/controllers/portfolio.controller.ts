@@ -16,6 +16,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { CreatePortfolioDto } from '../dto/portfolio/create-portfolio.dto';
 import { PortfolioService } from '../services/portfolio.service';
 import { UpdatePortfolioDto } from '../dto/portfolio/update-portfolio.dto';
+import { AttachFileDto } from '../../storage/dto/attach-file.dto';
 
 @Controller('tutor/portfolio')
 @UseGuards(RolesGuard)
@@ -42,5 +43,25 @@ export class PortfolioController {
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(@CurrentUser('id') userId: string, @Param('id') itemId: string) {
     return this.portfolio.remove(userId, itemId);
+  }
+
+  @Post(':id/images')
+  @HttpCode(HttpStatus.CREATED)
+  addImage(
+    @CurrentUser('id') userId: string,
+    @Param('id') itemId: string,
+    @Body() dto: AttachFileDto,
+  ) {
+    return this.portfolio.addImage(userId, itemId, dto.key);
+  }
+
+  @Delete(':id/images/:imageId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  removeImage(
+    @CurrentUser('id') userId: string,
+    @Param('id') itemId: string,
+    @Param('imageId') imageId: string,
+  ) {
+    return this.portfolio.removeImage(userId, itemId, imageId);
   }
 }

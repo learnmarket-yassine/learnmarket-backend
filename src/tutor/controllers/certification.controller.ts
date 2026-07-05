@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  Get,
   HttpCode,
   HttpStatus,
   Param,
@@ -16,6 +17,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { CertificationService } from '../services/certification.service';
 import { CreateCertificationDto } from '../dto/certification/create-certification.dto';
 import { UpdateCertificationDto } from '../dto/certification/update-certification.dto';
+import { AttachFileDto } from '../../storage/dto/attach-file.dto';
 
 @Controller('tutor/certifications')
 @UseGuards(RolesGuard)
@@ -42,5 +44,40 @@ export class CertificationController {
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(@CurrentUser('id') userId: string, @Param('id') certId: string) {
     return this.certification.remove(userId, certId);
+  }
+
+  @Post(':id/files')
+  @HttpCode(HttpStatus.CREATED)
+  addFile(
+    @CurrentUser('id') userId: string,
+    @Param('id') certId: string,
+    @Body() dto: AttachFileDto,
+  ) {
+    return this.certification.addFile(
+      userId,
+      certId,
+      dto.key,
+      dto.fileName,
+      dto.mimeType,
+    );
+  }
+
+  @Delete(':id/files/:fileId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  removeFile(
+    @CurrentUser('id') userId: string,
+    @Param('id') certId: string,
+    @Param('fileId') fileId: string,
+  ) {
+    return this.certification.removeFile(userId, certId, fileId);
+  }
+
+  @Get(':id/files/:fileId/url')
+  getFileUrl(
+    @CurrentUser('id') userId: string,
+    @Param('id') certId: string,
+    @Param('fileId') fileId: string,
+  ) {
+    return this.certification.getFileUrl(userId, certId, fileId);
   }
 }

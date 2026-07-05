@@ -18,9 +18,5 @@ export class CreatePortfolioDto {
 
   @IsOptional()
   @IsUrl()
-  imageUrl?: string;
-
-  @IsOptional()
-  @IsUrl()
   projectUrl?: string;
 }
