@@ -21,6 +21,13 @@ enum LanguageLevel {
   NATIVE_OR_BILINGUAL
 }
 
+enum PortfolioMediaType {
+  IMAGE
+  VIDEO_FILE
+  VIDEO_LINK
+  LINK
+}
+
 model User {
   id               String         @id @default(uuid())
   email            String         @unique
@@ -134,28 +141,31 @@ model PortfolioItem {
   id          String   @id @default(uuid())
   profileId   String   @map("profile_id")
   title       String
+  role        String?
   description String?  @db.Text
-  projectUrl  String?  @map("project_url")
+  skills      String[] @default([])
   createdAt   DateTime @default(now()) @map("created_at")
 
   profile TutorProfile     @relation(fields: [profileId], references: [id], onDelete: Cascade)
-  images  PortfolioImage[]
+  media   PortfolioMedia[]
 
   @@index([profileId])
   @@map("portfolio_items")
 }
 
-model PortfolioImage {
-  id              String   @id @default(uuid())
-  portfolioItemId String   @map("portfolio_item_id")
-  key             String // S3 object key
-  position        Int      @default(0)
-  createdAt       DateTime @default(now()) @map("created_at")
+model PortfolioMedia {
+  id              String             @id @default(uuid())
+  portfolioItemId String             @map("portfolio_item_id")
+  type            PortfolioMediaType
+  key             String? // S3 object key, set for IMAGE / VIDEO_FILE
+  url             String? // external URL, set for VIDEO_LINK / LINK
+  position        Int                @default(0)
+  createdAt       DateTime           @default(now()) @map("created_at")
 
   portfolioItem PortfolioItem @relation(fields: [portfolioItemId], references: [id], onDelete: Cascade)
 
   @@index([portfolioItemId])
-  @@map("portfolio_images")
+  @@map("portfolio_media")
 }
 
 model Certification {

@@ -9,7 +9,7 @@ import { UploadPurpose } from '../storage/upload-purpose.enum';
 const TUTOR_PROFILE_INCLUDE = {
   languages: true,
   education: true,
-  portfolio: { include: { images: true } },
+  portfolio: { include: { media: true } },
   certifications: { include: { files: true } },
   employment: { include: { certificates: true } },
 } as const;
@@ -60,7 +60,7 @@ export class UsersService {
     if (!user) throw new NotFoundException('User not found');
 
     return {
-      ...this.withPortfolioImageUrls(user),
+      ...user,
       avatarUrl: user.avatar ? this.uploads.getPublicUrl(user.avatar) : null,
       isProfileCompleted: this.isProfileCompleted(user),
     };
@@ -183,31 +183,8 @@ export class UsersService {
     });
     if (!user) throw new NotFoundException('User not found');
     return {
-      ...this.withPortfolioImageUrls(user),
-      avatarUrl: user.avatar ? this.uploads.getPublicUrl(user.avatar) : null,
-    };
-  }
-
-  private withPortfolioImageUrls<
-    T extends {
-      tutorProfile: {
-        portfolio: { images: { key: string }[] }[];
-      } | null;
-    },
-  >(user: T) {
-    if (!user.tutorProfile) return user;
-    return {
       ...user,
-      tutorProfile: {
-        ...user.tutorProfile,
-        portfolio: user.tutorProfile.portfolio.map((item) => ({
-          ...item,
-          images: item.images.map((image) => ({
-            ...image,
-            url: this.uploads.getPublicUrl(image.key),
-          })),
-        })),
-      },
+      avatarUrl: user.avatar ? this.uploads.getPublicUrl(user.avatar) : null,
     };
   }
 

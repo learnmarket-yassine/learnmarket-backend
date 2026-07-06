@@ -4,6 +4,7 @@ import { UploadPurpose } from './upload-purpose.enum';
 
 const IMAGE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const DOCUMENT_MIME_TYPES = [...IMAGE_MIME_TYPES, 'application/pdf'];
+const VIDEO_MIME_TYPES = ['video/mp4', 'video/webm', 'video/quicktime'];
 
 export interface UploadPolicy {
   keyPrefix: string;
@@ -24,6 +25,13 @@ export const UPLOAD_POLICIES: Record<UploadPurpose, UploadPolicy> = {
     keyPrefix: 'portfolio',
     maxSizeBytes: 8 * 1024 * 1024,
     allowedMimeTypes: IMAGE_MIME_TYPES,
+    visibility: 'public',
+    requiredRole: UserRole.TUTOR,
+  },
+  [UploadPurpose.PORTFOLIO_VIDEO]: {
+    keyPrefix: 'portfolio-videos',
+    maxSizeBytes: 100 * 1024 * 1024,
+    allowedMimeTypes: VIDEO_MIME_TYPES,
     visibility: 'public',
     requiredRole: UserRole.TUTOR,
   },
