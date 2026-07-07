@@ -16,6 +16,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { CreatePortfolioDto } from '../dto/portfolio/create-portfolio.dto';
 import { PortfolioService } from '../services/portfolio.service';
 import { UpdatePortfolioDto } from '../dto/portfolio/update-portfolio.dto';
+import { AddPortfolioMediaDto } from '../dto/portfolio/add-portfolio-media.dto';
 
 @Controller('tutor/portfolio')
 @UseGuards(RolesGuard)
@@ -42,5 +43,25 @@ export class PortfolioController {
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(@CurrentUser('id') userId: string, @Param('id') itemId: string) {
     return this.portfolio.remove(userId, itemId);
+  }
+
+  @Post(':id/media')
+  @HttpCode(HttpStatus.CREATED)
+  addMedia(
+    @CurrentUser('id') userId: string,
+    @Param('id') itemId: string,
+    @Body() dto: AddPortfolioMediaDto,
+  ) {
+    return this.portfolio.addMedia(userId, itemId, dto);
+  }
+
+  @Delete(':id/media/:mediaId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  removeMedia(
+    @CurrentUser('id') userId: string,
+    @Param('id') itemId: string,
+    @Param('mediaId') mediaId: string,
+  ) {
+    return this.portfolio.removeMedia(userId, itemId, mediaId);
   }
 }

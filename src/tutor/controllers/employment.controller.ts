@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  Get,
   HttpCode,
   HttpStatus,
   Param,
@@ -16,6 +17,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { EmploymentService } from '../services/employment.service';
 import { CreateEmploymentDto } from '../dto/employment/create-employment.dto';
 import { UpdateEmploymentDto } from '../dto/employment/update-employment.dto';
+import { AttachFileDto } from '../../storage/dto/attach-file.dto';
 
 @Controller('tutor/employment')
 @UseGuards(RolesGuard)
@@ -42,5 +44,47 @@ export class EmploymentController {
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(@CurrentUser('id') userId: string, @Param('id') employmentId: string) {
     return this.employment.remove(userId, employmentId);
+  }
+
+  @Post(':id/certificates')
+  @HttpCode(HttpStatus.CREATED)
+  addCertificate(
+    @CurrentUser('id') userId: string,
+    @Param('id') employmentId: string,
+    @Body() dto: AttachFileDto,
+  ) {
+    return this.employment.addCertificate(
+      userId,
+      employmentId,
+      dto.key,
+      dto.fileName,
+    );
+  }
+
+  @Delete(':id/certificates/:certificateId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  removeCertificate(
+    @CurrentUser('id') userId: string,
+    @Param('id') employmentId: string,
+    @Param('certificateId') certificateId: string,
+  ) {
+    return this.employment.removeCertificate(
+      userId,
+      employmentId,
+      certificateId,
+    );
+  }
+
+  @Get(':id/certificates/:certificateId/url')
+  getCertificateUrl(
+    @CurrentUser('id') userId: string,
+    @Param('id') employmentId: string,
+    @Param('certificateId') certificateId: string,
+  ) {
+    return this.employment.getCertificateUrl(
+      userId,
+      employmentId,
+      certificateId,
+    );
   }
 }

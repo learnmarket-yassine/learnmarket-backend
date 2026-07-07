@@ -8,7 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
 import { randomUUID } from 'crypto';
-import { Prisma, User } from '@prisma/client';
+import { Prisma, User, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { addDays, generateSecureToken, hashToken } from './utils/token.util';
@@ -59,9 +59,17 @@ export class AuthService {
     const passwordHash = await argon2.hash(signupUserDto.password);
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { confirmPassword, ...userData } = signupUserDto;
-    const user = await this.users.create({
-      ...userData,
-      password: passwordHash,
+
+    // Created atomically so a tutor never ends up without a profile row:
+    // one tutor profile per user, enforced by the unique userId column.
+    const user = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.user.create({
+        data: { ...userData, password: passwordHash },
+      });
+      if (created.role === UserRole.TUTOR) {
+        await tx.tutorProfile.create({ data: { userId: created.id } });
+      }
+      return created;
     });
 
     return { id: user.id, email: user.email, role: user.role };
