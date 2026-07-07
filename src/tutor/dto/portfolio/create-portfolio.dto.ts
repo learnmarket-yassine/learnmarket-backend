@@ -4,6 +4,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   MaxLength,
 } from 'class-validator';
 
@@ -25,7 +26,6 @@ export class CreatePortfolioDto {
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(5)
-  @IsString({ each: true })
-  @MaxLength(30, { each: true })
-  skills?: string[];
+  @IsUUID('4', { each: true })
+  skillIds?: string[];
 }

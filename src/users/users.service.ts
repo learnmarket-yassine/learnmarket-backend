@@ -9,7 +9,8 @@ import { UploadPurpose } from '../storage/upload-purpose.enum';
 const TUTOR_PROFILE_INCLUDE = {
   languages: true,
   education: true,
-  portfolio: { include: { media: true } },
+  skills: { include: { skill: true } },
+  portfolio: { include: { media: true, skills: { include: { skill: true } } } },
   certifications: { include: { files: true } },
   employment: { include: { certificates: true } },
 } as const;

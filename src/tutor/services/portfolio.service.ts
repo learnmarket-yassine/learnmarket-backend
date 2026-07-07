@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { PortfolioMediaType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SkillsService } from '../../skills/skills.service';
 import { TutorProfileService } from './tutor-profile.service';
 import { CreatePortfolioDto } from '../dto/portfolio/create-portfolio.dto';
 import { UpdatePortfolioDto } from '../dto/portfolio/update-portfolio.dto';
@@ -25,24 +26,62 @@ const UPLOAD_PURPOSE_BY_MEDIA_TYPE: Partial<
   [PortfolioMediaType.VIDEO_FILE]: UploadPurpose.PORTFOLIO_VIDEO,
 };
 
+const PORTFOLIO_ITEM_INCLUDE = {
+  media: true,
+  skills: { include: { skill: true } },
+} as const;
+
 @Injectable()
 export class PortfolioService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tutorProfile: TutorProfileService,
     private readonly uploads: UploadService,
+    private readonly skills: SkillsService,
   ) {}
 
   async add(userId: string, dto: CreatePortfolioDto) {
     const profileId = await this.tutorProfile.resolveProfileId(userId);
-    return this.prisma.portfolioItem.create({ data: { ...dto, profileId } });
+    const { skillIds, ...rest } = dto;
+    const uniqueSkillIds = skillIds?.length
+      ? await this.skills.assertAllActive(skillIds)
+      : undefined;
+
+    return this.prisma.portfolioItem.create({
+      data: {
+        ...rest,
+        profileId,
+        skills: uniqueSkillIds
+          ? { create: uniqueSkillIds.map((skillId) => ({ skillId })) }
+          : undefined,
+      },
+      include: PORTFOLIO_ITEM_INCLUDE,
+    });
   }
 
   async update(userId: string, itemId: string, dto: UpdatePortfolioDto) {
     await this.assertOwnership(userId, itemId);
-    return this.prisma.portfolioItem.update({
-      where: { id: itemId },
-      data: dto,
+    const { skillIds, ...rest } = dto;
+    const uniqueSkillIds = skillIds
+      ? await this.skills.assertAllActive(skillIds)
+      : undefined;
+
+    return this.prisma.$transaction(async (tx) => {
+      if (uniqueSkillIds) {
+        await tx.portfolioItemSkill.deleteMany({
+          where: { portfolioItemId: itemId },
+        });
+      }
+      return tx.portfolioItem.update({
+        where: { id: itemId },
+        data: {
+          ...rest,
+          skills: uniqueSkillIds
+            ? { create: uniqueSkillIds.map((skillId) => ({ skillId })) }
+            : undefined,
+        },
+        include: PORTFOLIO_ITEM_INCLUDE,
+      });
     });
   }
 
