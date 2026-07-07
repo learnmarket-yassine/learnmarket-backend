@@ -13,6 +13,9 @@ import { EmailModule } from './email/email.module';
 import { RedisModule } from './redis/redis.module';
 import { TutorModule } from './tutor/tutor.module';
 import { StorageModule } from './storage/storage.module';
+import { ConnectsModule } from './connects/connects.module';
+import { AnnoncesModule } from './annonces/annonces.module';
+import { ProposalsModule } from './proposals/proposals.module';
 
 @Module({
   imports: [
@@ -30,6 +33,9 @@ import { StorageModule } from './storage/storage.module';
     RedisModule,
     TutorModule,
     StorageModule,
+    ConnectsModule,
+    AnnoncesModule,
+    ProposalsModule,
   ],
   controllers: [AppController],
   providers: [

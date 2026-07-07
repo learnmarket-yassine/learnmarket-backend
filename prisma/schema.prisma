@@ -28,6 +28,26 @@ enum PortfolioMediaType {
   LINK
 }
 
+enum ConnectsTransactionType {
+  PURCHASE
+  SPEND
+  REFUND
+  BONUS
+  SIGNUP_GRANT
+}
+
+enum AnnonceStatus {
+  OPEN
+  CLOSED
+}
+
+enum ProposalStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  WITHDRAWN
+}
+
 model User {
   id               String         @id @default(uuid())
   email            String         @unique
@@ -53,6 +73,7 @@ model User {
   updatedAt        DateTime       @updatedAt @map("updated_at")
   refreshTokens    RefreshToken[]
   tutorProfile     TutorProfile?
+  annonces         Annonce[]
 
   @@index([email])
   @@index([role])
@@ -82,6 +103,7 @@ model TutorProfile {
   hoursPerWeek  String?  @map("hours_per_week")
   videoIntroUrl String?  @map("video_intro_url")
   isVerified    Boolean  @default(false) @map("is_verified")
+  connects      Int      @default(0) @map("connects")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -95,6 +117,9 @@ model TutorProfile {
   certifications Certification[]
   employment     Employment[]
   profileSkills  ProfileSkill[]
+
+  proposals            Proposal[]
+  connectsTransactions ConnectsTransaction[]
 
   @@map("tutor_profiles")
 }
@@ -231,4 +256,81 @@ model EmploymentCertificate {
 
   @@index([employmentId])
   @@map("employment_certificates")
+}
+
+model Annonce {
+  id           String        @id @default(uuid())
+  learnerId    String        @map("learner_id")
+  title        String
+  description  String?       @db.Text
+  status       AnnonceStatus @default(OPEN)
+  proposalCost Int           @default(2) @map("proposal_cost")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  learner   User       @relation(fields: [learnerId], references: [id], onDelete: Cascade)
+  proposals Proposal[]
+
+  @@index([learnerId])
+  @@map("annonces")
+}
+
+model Proposal {
+  id        String         @id @default(uuid())
+  annonceId String         @map("annonce_id")
+  tutorId   String         @map("tutor_id")
+  message   String?        @db.Text
+  status    ProposalStatus @default(PENDING)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  annonce              Annonce               @relation(fields: [annonceId], references: [id], onDelete: Cascade)
+  tutor                TutorProfile          @relation(fields: [tutorId], references: [id], onDelete: Cascade)
+  connectsTransactions ConnectsTransaction[]
+
+  @@unique([annonceId, tutorId])
+  @@index([annonceId])
+  @@index([tutorId])
+  @@map("proposals")
+}
+
+model ConnectsPackage {
+  id            String  @id @default(uuid())
+  name          String
+  amount        Int // connects granted on purchase
+  priceCents    Int     @map("price_cents")
+  currency      String  @default("usd")
+  isActive      Boolean @default(true) @map("is_active")
+  stripePriceId String? @map("stripe_price_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  transactions ConnectsTransaction[]
+
+  @@map("connects_packages")
+}
+
+model ConnectsTransaction {
+  id           String                  @id @default(uuid())
+  tutorId      String                  @map("tutor_id")
+  type         ConnectsTransactionType
+  amount       Int
+  balanceAfter Int                     @map("balance_after")
+
+  relatedProposalId     String? @map("related_proposal_id")
+  relatedPackageId      String? @map("related_package_id")
+  stripePaymentIntentId String? @unique @map("stripe_payment_intent_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tutor           TutorProfile     @relation(fields: [tutorId], references: [id], onDelete: Cascade)
+  relatedProposal Proposal?        @relation(fields: [relatedProposalId], references: [id], onDelete: SetNull)
+  relatedPackage  ConnectsPackage? @relation(fields: [relatedPackageId], references: [id], onDelete: SetNull)
+
+  @@index([tutorId])
+  @@index([relatedProposalId])
+  @@map("connects_transactions")
 }

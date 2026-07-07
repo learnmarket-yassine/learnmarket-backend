@@ -1,0 +1,2 @@
+export const DEFAULT_CONNECTS_SIGNUP_GRANT = 5;
+export const DEFAULT_PROPOSAL_COST = 2;

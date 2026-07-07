@@ -7,6 +7,7 @@ import { PassportModule } from '@nestjs/passport';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { EmailModule } from '../email/email.module';
 import { RedisModule } from '../redis/redis.module';
+import { ConnectsModule } from '../connects/connects.module';
 
 @Module({
   providers: [AuthService, JwtStrategy],
@@ -17,6 +18,7 @@ import { RedisModule } from '../redis/redis.module';
     PassportModule,
     EmailModule,
     RedisModule,
+    ConnectsModule,
   ],
 })
 export class AuthModule {}

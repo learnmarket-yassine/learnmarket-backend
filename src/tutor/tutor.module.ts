@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import { ConnectsModule } from '../connects/connects.module';
 import { TutorProfileService } from './services/tutor-profile.service';
 import { EducationService } from './services/education.service';
 import { LanguageService } from './services/language.service';
@@ -15,6 +16,7 @@ import { CertificationController } from './controllers/certification.controller'
 import { EmploymentController } from './controllers/employment.controller';
 
 @Module({
+  imports: [ConnectsModule],
   providers: [
     TutorProfileService,
     EducationService,

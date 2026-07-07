@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ConnectsService } from '../../connects/connects.service';
 import { UpdateProfileDto } from '../dto/profile/update-profile.dto';
 
 const PROFILE_INCLUDE = {
@@ -18,7 +19,10 @@ const PROFILE_INCLUDE = {
 
 @Injectable()
 export class TutorProfileService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly connects: ConnectsService,
+  ) {}
 
   async create(userId: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
@@ -32,9 +36,13 @@ export class TutorProfileService {
     });
     if (existing) throw new ConflictException('Profile already exists');
 
-    return this.prisma.tutorProfile.create({
-      data: { userId },
-      include: PROFILE_INCLUDE,
+    return this.prisma.$transaction(async (tx) => {
+      const profile = await tx.tutorProfile.create({ data: { userId } });
+      await this.connects.grantSignupBonus(tx, profile.id);
+      return tx.tutorProfile.findUniqueOrThrow({
+        where: { id: profile.id },
+        include: PROFILE_INCLUDE,
+      });
     });
   }
 

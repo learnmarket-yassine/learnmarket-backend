@@ -17,6 +17,7 @@ import { SignupDto } from './dto/signup.dto';
 import * as crypto from 'crypto';
 import { EmailService } from '../email/email.service';
 import { RedisService } from '../redis/redis.service';
+import { ConnectsService } from '../connects/connects.service';
 
 export interface TokenPair {
   accessToken: string;
@@ -46,6 +47,7 @@ export class AuthService {
     private readonly config: ConfigService,
     private readonly email: EmailService,
     private readonly redis: RedisService,
+    private readonly connects: ConnectsService,
   ) {}
 
   async signup(
@@ -67,7 +69,10 @@ export class AuthService {
         data: { ...userData, password: passwordHash },
       });
       if (created.role === UserRole.TUTOR) {
-        await tx.tutorProfile.create({ data: { userId: created.id } });
+        const profile = await tx.tutorProfile.create({
+          data: { userId: created.id },
+        });
+        await this.connects.grantSignupBonus(tx, profile.id);
       }
       return created;
     });
