@@ -14,6 +14,7 @@ import { RedisModule } from './redis/redis.module';
 import { TutorModule } from './tutor/tutor.module';
 import { StorageModule } from './storage/storage.module';
 import { SkillsModule } from './skills/skills.module';
+import { CategoriesModule } from './categories/categories.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { SkillsModule } from './skills/skills.module';
     TutorModule,
     StorageModule,
     SkillsModule,
+    CategoriesModule,
   ],
   controllers: [AppController],
   providers: [

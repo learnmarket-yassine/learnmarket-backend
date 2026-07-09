@@ -10,6 +10,7 @@ const TUTOR_PROFILE_INCLUDE = {
   languages: true,
   education: true,
   skills: { include: { skill: true } },
+  specialties: { include: { specialty: { include: { category: true } } } },
   portfolio: { include: { media: true, skills: { include: { skill: true } } } },
   certifications: { include: { files: true } },
   employment: { include: { certificates: true } },

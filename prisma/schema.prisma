@@ -75,6 +75,54 @@ model RefreshToken {
   @@index([userId])
 }
 
+model Category {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  slug      String   @unique
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  specialties Specialty[]
+
+  @@index([isActive])
+  @@map("categories")
+}
+
+model Specialty {
+  id         String   @id @default(uuid())
+  categoryId String   @map("category_id")
+  name       String
+  slug       String
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  tutorProfiles TutorProfileSpecialty[]
+
+  @@unique([categoryId, slug])
+  @@index([categoryId])
+  @@index([isActive])
+  @@map("specialties")
+}
+
+model TutorProfileSpecialty {
+  id          String   @id @default(uuid())
+  profileId   String   @map("profile_id")
+  specialtyId String   @map("specialty_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  profile   TutorProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  specialty Specialty    @relation(fields: [specialtyId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, specialtyId])
+  @@index([profileId])
+  @@index([specialtyId])
+  @@map("tutor_profile_specialties")
+}
+
 model TutorProfile {
   id            String   @id @default(uuid())
   userId        String   @unique @map("user_id")
@@ -94,6 +142,7 @@ model TutorProfile {
   portfolio      PortfolioItem[]
   certifications Certification[]
   employment     Employment[]
+  specialties    TutorProfileSpecialty[]
 
   @@map("tutor_profiles")
 }
