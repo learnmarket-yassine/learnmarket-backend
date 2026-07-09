@@ -11,7 +11,9 @@ import { UpdateProfileDto } from '../dto/profile/update-profile.dto';
 const PROFILE_INCLUDE = {
   languages: true,
   education: true,
-  portfolio: { include: { media: true } },
+  skills: { include: { skill: true } },
+  specialties: { include: { specialty: { include: { category: true } } } },
+  portfolio: { include: { media: true, skills: { include: { skill: true } } } },
   certifications: { include: { files: true } },
   employment: { include: { certificates: true } },
 } as const;

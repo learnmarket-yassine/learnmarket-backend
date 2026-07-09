@@ -75,6 +75,54 @@ model RefreshToken {
   @@index([userId])
 }
 
+model Category {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  slug      String   @unique
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  specialties Specialty[]
+
+  @@index([isActive])
+  @@map("categories")
+}
+
+model Specialty {
+  id         String   @id @default(uuid())
+  categoryId String   @map("category_id")
+  name       String
+  slug       String
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  tutorProfiles TutorProfileSpecialty[]
+
+  @@unique([categoryId, slug])
+  @@index([categoryId])
+  @@index([isActive])
+  @@map("specialties")
+}
+
+model TutorProfileSpecialty {
+  id          String   @id @default(uuid())
+  profileId   String   @map("profile_id")
+  specialtyId String   @map("specialty_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  profile   TutorProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  specialty Specialty    @relation(fields: [specialtyId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, specialtyId])
+  @@index([profileId])
+  @@index([specialtyId])
+  @@map("tutor_profile_specialties")
+}
+
 model TutorProfile {
   id            String   @id @default(uuid())
   userId        String   @unique @map("user_id")
@@ -86,15 +134,15 @@ model TutorProfile {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   languages ProfileLanguage[]
   education Education[]
-  skills    String[]          @default([]) @map("skills")
+  skills    TutorProfileSkill[]
 
   portfolio      PortfolioItem[]
   certifications Certification[]
   employment     Employment[]
-  profileSkills  ProfileSkill[]
+  specialties    TutorProfileSpecialty[]
 
   @@map("tutor_profiles")
 }
@@ -126,15 +174,33 @@ model Education {
   @@map("education")
 }
 
-model ProfileSkill {
-  id        String @id @default(uuid())
-  profileId String @map("profile_id")
-  label     String
+model Skill {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tutorProfiles  TutorProfileSkill[]
+  portfolioItems PortfolioItemSkill[]
+
+  @@index([name])
+  @@map("skills")
+}
+
+model TutorProfileSkill {
+  id        String   @id @default(uuid())
+  profileId String   @map("profile_id")
+  skillId   String   @map("skill_id")
+  createdAt DateTime @default(now()) @map("created_at")
 
   profile TutorProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  skill   Skill        @relation(fields: [skillId], references: [id], onDelete: Cascade)
 
+  @@unique([profileId, skillId])
   @@index([profileId])
-  @@map("profile_skills")
+  @@index([skillId])
+  @@map("tutor_profile_skills")
 }
 
 model PortfolioItem {
@@ -143,14 +209,29 @@ model PortfolioItem {
   title       String
   role        String?
   description String?  @db.Text
-  skills      String[] @default([])
   createdAt   DateTime @default(now()) @map("created_at")
 
-  profile TutorProfile     @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  profile TutorProfile         @relation(fields: [profileId], references: [id], onDelete: Cascade)
   media   PortfolioMedia[]
+  skills  PortfolioItemSkill[]
 
   @@index([profileId])
   @@map("portfolio_items")
+}
+
+model PortfolioItemSkill {
+  id              String   @id @default(uuid())
+  portfolioItemId String   @map("portfolio_item_id")
+  skillId         String   @map("skill_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  portfolioItem PortfolioItem @relation(fields: [portfolioItemId], references: [id], onDelete: Cascade)
+  skill         Skill         @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@unique([portfolioItemId, skillId])
+  @@index([portfolioItemId])
+  @@index([skillId])
+  @@map("portfolio_item_skills")
 }
 
 model PortfolioMedia {
