@@ -1,19 +1,22 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
-import { User, UserRole } from '@prisma/client';
+import { UpdateMyProfileDto } from './dto/update-my-profile.dto';
+import { Prisma, User, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UploadService } from '../storage/upload.service';
 import { UploadPurpose } from '../storage/upload-purpose.enum';
 
 const TUTOR_PROFILE_INCLUDE = {
-  languages: true,
-  education: true,
   skills: { include: { skill: true } },
   specialties: { include: { specialty: { include: { category: true } } } },
   portfolio: { include: { media: true, skills: { include: { skill: true } } } },
   certifications: { include: { files: true } },
   employment: { include: { certificates: true } },
+} as const;
+
+const LEARNER_PROFILE_INCLUDE = {
+  interests: { include: { specialty: { include: { category: true } } } },
 } as const;
 
 const PROFILE_SELECT = {
@@ -37,8 +40,99 @@ const PROFILE_SELECT = {
   onboardingStep: true,
   createdAt: true,
   updatedAt: true,
+  education: true,
+  languages: true,
   tutorProfile: { include: TUTOR_PROFILE_INCLUDE },
+  learnerProfile: { include: LEARNER_PROFILE_INCLUDE },
 } as const;
+
+enum LearnerOnboardingStep {
+  Interests = 1,
+  Availability = 2,
+  Headline = 3,
+  Education = 4,
+  Languages = 5,
+  Bio = 6,
+  ContactInfo = 7,
+}
+
+enum TutorOnboardingStep {
+  ImportData = 1,
+  Specialties = 2,
+  Skills = 3,
+  Headline = 4,
+  // Experience = 5 — intentionally NOT a tracked step below (see comment).
+  Education = 6,
+  Languages = 7,
+  Bio = 8,
+  HourlyRate = 9,
+  ContactInfo = 10,
+}
+
+type ProfileUser = Prisma.UserGetPayload<{ select: typeof PROFILE_SELECT }>;
+
+type OnboardingStepDef = {
+  step: number;
+  isComplete: (user: ProfileUser) => boolean;
+};
+
+const LEARNER_ONBOARDING_STEPS: OnboardingStepDef[] = [
+  {
+    step: LearnerOnboardingStep.Interests,
+    isComplete: (u) => (u.learnerProfile?.interests.length ?? 0) > 0,
+  },
+  {
+    step: LearnerOnboardingStep.Availability,
+    isComplete: (u) =>
+      Array.isArray(u.learnerProfile?.availability) &&
+      (u.learnerProfile?.availability as unknown[]).length > 0,
+  },
+  { step: LearnerOnboardingStep.Headline, isComplete: (u) => !!u.headline },
+  {
+    step: LearnerOnboardingStep.Education,
+    isComplete: (u) => u.education.length > 0,
+  },
+  {
+    step: LearnerOnboardingStep.Languages,
+    isComplete: (u) => u.languages.length > 0,
+  },
+  { step: LearnerOnboardingStep.Bio, isComplete: (u) => !!u.bio },
+  {
+    step: LearnerOnboardingStep.ContactInfo,
+    isComplete: (u) =>
+      !!u.country && !!u.city && !!u.phone && !!u.dateOfBirth && !!u.address,
+  },
+];
+
+const TUTOR_ONBOARDING_STEPS: OnboardingStepDef[] = [
+  {
+    step: TutorOnboardingStep.Specialties,
+    isComplete: (u) => (u.tutorProfile?.specialties.length ?? 0) > 0,
+  },
+  {
+    step: TutorOnboardingStep.Skills,
+    isComplete: (u) => (u.tutorProfile?.skills.length ?? 0) > 0,
+  },
+  { step: TutorOnboardingStep.Headline, isComplete: (u) => !!u.headline },
+  {
+    step: TutorOnboardingStep.Education,
+    isComplete: (u) => u.education.length > 0,
+  },
+  {
+    step: TutorOnboardingStep.Languages,
+    isComplete: (u) => u.languages.length > 0,
+  },
+  { step: TutorOnboardingStep.Bio, isComplete: (u) => !!u.bio },
+  {
+    step: TutorOnboardingStep.HourlyRate,
+    isComplete: (u) => u.tutorProfile?.hourlyRate != null,
+  },
+  {
+    step: TutorOnboardingStep.ContactInfo,
+    isComplete: (u) =>
+      !!u.country && !!u.city && !!u.phone && !!u.dateOfBirth && !!u.address,
+  },
+];
 
 @Injectable()
 export class UsersService {
@@ -61,11 +155,7 @@ export class UsersService {
     });
     if (!user) throw new NotFoundException('User not found');
 
-    return {
-      ...user,
-      avatarUrl: user.avatar ? this.uploads.getPublicUrl(user.avatar) : null,
-      isProfileCompleted: this.isProfileCompleted(user),
-    };
+    return this.buildOwnProfileResponse(user);
   }
 
   async updateAvatar(userId: string, key: string) {
@@ -94,13 +184,14 @@ export class UsersService {
     };
   }
 
-  async updateOnboardingStep(userId: string, step: number) {
-    const updated = await this.prisma.user.update({
+  async updateMyProfile(userId: string, dto: UpdateMyProfileDto) {
+    const user = await this.prisma.user.update({
       where: { id: userId },
-      data: { onboardingStep: step },
-      select: { onboardingStep: true },
+      data: dto,
+      select: PROFILE_SELECT,
     });
-    return updated;
+
+    return this.buildOwnProfileResponse(user);
   }
 
   async removeAvatar(userId: string) {
@@ -119,55 +210,60 @@ export class UsersService {
     }
   }
 
-  private isProfileCompleted(
-    user: Pick<
-      User,
-      'role' | 'headline' | 'bio' | 'dateOfBirth' | 'address' | 'city' | 'phone'
-    > & {
-      tutorProfile: {
-        hourlyRate: unknown;
-        skills: unknown[];
-        education: unknown[];
-        languages: unknown[];
-      } | null;
-    },
-  ): boolean {
+  private buildOwnProfileResponse(user: ProfileUser) {
+    return {
+      ...user,
+      onboardingStep: this.computeOnboardingStep(user),
+      avatarUrl: user.avatar ? this.uploads.getPublicUrl(user.avatar) : null,
+      isProfileCompleted: this.isProfileCompleted(user),
+    };
+  }
+
+  private computeOnboardingStep(user: ProfileUser): number {
     switch (user.role) {
       case UserRole.TUTOR:
-        return this.isTutorProfileCompleted(user);
+        return this.computeTutorOnboardingStep(user);
+      case UserRole.LEARNER:
+        return (
+          this.nextIncompleteStep(LEARNER_ONBOARDING_STEPS, user) ??
+          user.onboardingStep
+        );
+      default:
+        return user.onboardingStep;
+    }
+  }
+  private computeTutorOnboardingStep(user: ProfileUser): number {
+    const hasAnyProgress = TUTOR_ONBOARDING_STEPS.some((s) =>
+      s.isComplete(user),
+    );
+    if (!hasAnyProgress) return TutorOnboardingStep.ImportData;
+
+    const next = this.nextIncompleteStep(TUTOR_ONBOARDING_STEPS, user);
+    return (
+      next ?? TUTOR_ONBOARDING_STEPS[TUTOR_ONBOARDING_STEPS.length - 1].step + 1
+    );
+  }
+
+  private nextIncompleteStep(
+    steps: OnboardingStepDef[],
+    user: ProfileUser,
+  ): number | undefined {
+    return steps.find((s) => !s.isComplete(user))?.step;
+  }
+
+  private isProfileCompleted(user: ProfileUser): boolean {
+    switch (user.role) {
+      case UserRole.TUTOR:
+        return (
+          this.nextIncompleteStep(TUTOR_ONBOARDING_STEPS, user) === undefined
+        );
+      case UserRole.LEARNER:
+        return (
+          this.nextIncompleteStep(LEARNER_ONBOARDING_STEPS, user) === undefined
+        );
       default:
         return true;
     }
-  }
-
-  private isTutorProfileCompleted(user: {
-    headline: string | null;
-    bio: string | null;
-    dateOfBirth: Date | null;
-    address: string | null;
-    city: string | null;
-    phone: string | null;
-    tutorProfile: {
-      hourlyRate: unknown;
-      skills: unknown[];
-      education: unknown[];
-      languages: unknown[];
-    } | null;
-  }): boolean {
-    const profile = user.tutorProfile;
-    return !!(
-      user.headline &&
-      user.bio &&
-      user.dateOfBirth &&
-      user.address &&
-      user.city &&
-      user.phone &&
-      profile &&
-      profile.hourlyRate != null &&
-      profile.skills.length > 0 &&
-      profile.education.length > 0 &&
-      profile.languages.length > 0
-    );
   }
 
   findByEmail(email: string): Promise<User | null> {

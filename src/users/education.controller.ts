@@ -7,19 +7,13 @@ import {
   Param,
   Patch,
   Post,
-  UseGuards,
 } from '@nestjs/common';
-import { UserRole } from '@prisma/client';
-import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
-import { RolesGuard } from '../../common/guards/roles.guard';
-import { CreateEducationDto } from '../dto/education/create-education.dto';
-import { UpdateEducationDto } from '../dto/education/update-education.dto';
-import { EducationService } from '../services/education.service';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { CreateEducationDto } from './dto/education/create-education.dto';
+import { UpdateEducationDto } from './dto/education/update-education.dto';
+import { EducationService } from './education.service';
 
-@Controller('tutor/education')
-@UseGuards(RolesGuard)
-@Roles(UserRole.TUTOR)
+@Controller('users/me/education')
 export class EducationController {
   constructor(private readonly education: EducationService) {}
 
