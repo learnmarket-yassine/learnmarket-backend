@@ -12,6 +12,7 @@ import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { EmailModule } from './email/email.module';
 import { RedisModule } from './redis/redis.module';
 import { TutorModule } from './tutor/tutor.module';
+import { LearnerModule } from './learner/learner.module';
 import { StorageModule } from './storage/storage.module';
 import { SkillsModule } from './skills/skills.module';
 import { CategoriesModule } from './categories/categories.module';
@@ -31,6 +32,7 @@ import { CategoriesModule } from './categories/categories.module';
     EmailModule,
     RedisModule,
     TutorModule,
+    LearnerModule,
     StorageModule,
     SkillsModule,
     CategoriesModule,

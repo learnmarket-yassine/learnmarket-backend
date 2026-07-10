@@ -7,18 +7,12 @@ import {
   Param,
   Patch,
   Post,
-  UseGuards,
 } from '@nestjs/common';
-import { UserRole } from '@prisma/client';
-import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
-import { RolesGuard } from '../../common/guards/roles.guard';
-import { UpsertLanguageDto } from '../dto/language/upsert-language.dto';
-import { LanguageService } from '../services/language.service';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { UpsertLanguageDto } from './dto/language/upsert-language.dto';
+import { LanguageService } from './language.service';
 
-@Controller('tutor/languages')
-@UseGuards(RolesGuard)
-@Roles(UserRole.TUTOR)
+@Controller('users/me/languages')
 export class LanguageController {
   constructor(private readonly language: LanguageService) {}
 

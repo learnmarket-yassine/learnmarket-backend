@@ -60,14 +60,16 @@ export class AuthService {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { confirmPassword, ...userData } = signupUserDto;
 
-    // Created atomically so a tutor never ends up without a profile row:
-    // one tutor profile per user, enforced by the unique userId column.
+    // Created atomically so a user never ends up without a profile row:
+    // one role-specific profile per user, enforced by the unique userId column.
     const user = await this.prisma.$transaction(async (tx) => {
       const created = await tx.user.create({
         data: { ...userData, password: passwordHash },
       });
       if (created.role === UserRole.TUTOR) {
         await tx.tutorProfile.create({ data: { userId: created.id } });
+      } else if (created.role === UserRole.LEARNER) {
+        await tx.learnerProfile.create({ data: { userId: created.id } });
       }
       return created;
     });

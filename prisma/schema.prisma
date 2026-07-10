@@ -29,30 +29,33 @@ enum PortfolioMediaType {
 }
 
 model User {
-  id               String         @id @default(uuid())
-  email            String         @unique
-  password         String         @map("password")
-  unverifiedEmail  String?        @map("unverified_email")
-  firstname        String         @map("firstname")
-  lastname         String         @map("lastname")
-  avatar           String?        @map("avatar_key")
+  id               String          @id @default(uuid())
+  email            String          @unique
+  password         String          @map("password")
+  unverifiedEmail  String?         @map("unverified_email")
+  firstname        String          @map("firstname")
+  lastname         String          @map("lastname")
+  avatar           String?         @map("avatar_key")
   headline         String?
-  bio              String?        @db.Text
-  phone            String?        @unique @map("phone")
-  phoneCountryCode String?        @map("phone_country_code")
-  dateOfBirth      DateTime?      @map("date_of_birth")
+  bio              String?         @db.Text
+  phone            String?         @unique @map("phone")
+  phoneCountryCode String?         @map("phone_country_code")
+  dateOfBirth      DateTime?       @map("date_of_birth")
   country          String?
   address          String?
   city             String?
   state            String?
-  postalCode       String?        @map("postal_code")
-  role             UserRole       @default(LEARNER)
-  isOnlineForMsg   Boolean        @default(false) @map("is_online_for_msg")
-  onboardingStep   Int            @default(1) @map("onboarding_step")
-  createdAt        DateTime       @default(now()) @map("created_at")
-  updatedAt        DateTime       @updatedAt @map("updated_at")
+  postalCode       String?         @map("postal_code")
+  role             UserRole        @default(LEARNER)
+  isOnlineForMsg   Boolean         @default(false) @map("is_online_for_msg")
+  onboardingStep   Int             @default(1) @map("onboarding_step")
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
   refreshTokens    RefreshToken[]
   tutorProfile     TutorProfile?
+  learnerProfile   LearnerProfile?
+  education        Education[]
+  languages        UserLanguage[]
 
   @@index([email])
   @@index([role])
@@ -100,7 +103,8 @@ model Specialty {
 
   category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
 
-  tutorProfiles TutorProfileSpecialty[]
+  tutorProfiles    TutorProfileSpecialty[]
+  learnerInterests LearnerProfileInterest[]
 
   @@unique([categoryId, slug])
   @@index([categoryId])
@@ -134,10 +138,8 @@ model TutorProfile {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  user      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  languages ProfileLanguage[]
-  education Education[]
-  skills    TutorProfileSkill[]
+  user   User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  skills TutorProfileSkill[]
 
   portfolio      PortfolioItem[]
   certifications Certification[]
@@ -147,30 +149,30 @@ model TutorProfile {
   @@map("tutor_profiles")
 }
 
-model ProfileLanguage {
-  id        String        @id @default(uuid())
-  profileId String        @map("profile_id")
-  language  String
-  level     LanguageLevel
+model UserLanguage {
+  id       String        @id @default(uuid())
+  userId   String        @map("user_id")
+  language String
+  level    LanguageLevel
 
-  profile TutorProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([profileId])
-  @@map("profile_languages")
+  @@index([userId])
+  @@map("user_languages")
 }
 
 model Education {
   id           String  @id @default(uuid())
-  profileId    String  @map("profile_id")
+  userId       String  @map("user_id")
   institution  String
   degree       String?
   fieldOfStudy String? @map("field_of_study")
   startYear    Int?    @map("start_year")
   endYear      Int?    @map("end_year")
 
-  profile TutorProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([profileId])
+  @@index([userId])
   @@map("education")
 }
 
@@ -277,6 +279,35 @@ model CertificationFile {
 
   @@index([certificationId])
   @@map("certification_files")
+}
+
+model LearnerProfile {
+  id           String @id @default(uuid())
+  userId       String @unique @map("user_id")
+  availability Json?  @map("availability")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user      User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  interests LearnerProfileInterest[]
+
+  @@map("learner_profiles")
+}
+
+model LearnerProfileInterest {
+  id          String   @id @default(uuid())
+  profileId   String   @map("profile_id")
+  specialtyId String   @map("specialty_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  profile   LearnerProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  specialty Specialty      @relation(fields: [specialtyId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, specialtyId])
+  @@index([profileId])
+  @@index([specialtyId])
+  @@map("learner_profile_interests")
 }
 
 model Employment {
