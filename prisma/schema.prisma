@@ -29,33 +29,41 @@ enum PortfolioMediaType {
 }
 
 model User {
-  id               String          @id @default(uuid())
-  email            String          @unique
-  password         String          @map("password")
-  unverifiedEmail  String?         @map("unverified_email")
-  firstname        String          @map("firstname")
-  lastname         String          @map("lastname")
-  avatar           String?         @map("avatar_key")
-  headline         String?
-  bio              String?         @db.Text
-  phone            String?         @unique @map("phone")
-  phoneCountryCode String?         @map("phone_country_code")
-  dateOfBirth      DateTime?       @map("date_of_birth")
-  country          String?
-  address          String?
-  city             String?
-  state            String?
-  postalCode       String?         @map("postal_code")
-  role             UserRole        @default(LEARNER)
-  isOnlineForMsg   Boolean         @default(false) @map("is_online_for_msg")
-  onboardingStep   Int             @default(1) @map("onboarding_step")
-  createdAt        DateTime        @default(now()) @map("created_at")
-  updatedAt        DateTime        @updatedAt @map("updated_at")
-  refreshTokens    RefreshToken[]
-  tutorProfile     TutorProfile?
-  learnerProfile   LearnerProfile?
-  education        Education[]
-  languages        UserLanguage[]
+  id                          String                       @id @default(uuid())
+  email                       String                       @unique
+  password                    String                       @map("password")
+  unverifiedEmail             String?                      @map("unverified_email")
+  firstname                   String                       @map("firstname")
+  lastname                    String                       @map("lastname")
+  avatar                      String?                      @map("avatar_key")
+  headline                    String?
+  bio                         String?                      @db.Text
+  phone                       String?                      @unique @map("phone")
+  phoneCountryCode            String?                      @map("phone_country_code")
+  dateOfBirth                 DateTime?                    @map("date_of_birth")
+  country                     String?
+  address                     String?
+  city                        String?
+  state                       String?
+  postalCode                  String?                      @map("postal_code")
+  role                        UserRole                     @default(LEARNER)
+  isOnlineForMsg              Boolean                      @default(false) @map("is_online_for_msg")
+  onboardingStep              Int                          @default(1) @map("onboarding_step")
+  createdAt                   DateTime                     @default(now()) @map("created_at")
+  updatedAt                   DateTime                     @updatedAt @map("updated_at")
+  refreshTokens               RefreshToken[]
+  tutorProfile                TutorProfile?
+  learnerProfile              LearnerProfile?
+  education                   Education[]
+  languages                   UserLanguage[]
+  tutorAvailabilityRules      TutorAvailabilityRule[]      @relation("TutorAvailabilityRules")
+  tutorAvailabilityExceptions TutorAvailabilityException[] @relation("TutorAvailabilityExceptions")
+  jobRequests                 JobRequest[]                 @relation("LearnerJobRequests")
+  proposals                   Proposal[]                   @relation("TutorProposals")
+  tutorSlotHolds              SlotHold[]                   @relation("TutorSlotHolds")
+  learnerSlotHolds            SlotHold[]                   @relation("LearnerSlotHolds")
+  tutorBookings               Booking[]                    @relation("TutorBookings")
+  learnerBookings             Booking[]                    @relation("LearnerBookings")
 
   @@index([email])
   @@index([role])
@@ -344,3 +352,291 @@ model EmploymentCertificate {
   @@index([employmentId])
   @@map("employment_certificates")
 }
+
+model TutorAvailabilityRule {
+  id      String @id @default(uuid())
+  tutorId String @map("tutor_id")
+
+  /// 0 = Sunday, 1 = Monday, ... 6 = Saturday (matches JS Date.getDay())
+  dayOfWeek Int @map("day_of_week")
+
+  /// Minutes since midnight, local to `timezone` below
+  startTime Int @map("start_time")
+
+  /// Minutes since midnight, local time. Must be > startTime
+  /// (CHECK constraint — see migration note at bottom of file)
+  endTime Int @map("end_time")
+
+  /// IANA name, e.g. "Europe/Paris"
+  timezone String
+
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tutor User @relation("TutorAvailabilityRules", fields: [tutorId], references: [id], onDelete: Cascade)
+
+  @@index([tutorId])
+  @@index([tutorId, dayOfWeek])
+  @@map("tutor_availability_rules")
+}
+
+enum ExceptionType {
+  BLOCKED
+  ADDED
+
+  @@map("exception_type")
+}
+
+model TutorAvailabilityException {
+  id      String        @id @default(uuid())
+  tutorId String        @map("tutor_id")
+  date    DateTime      @db.Date
+  type    ExceptionType
+
+  /// NULL start+end together means "whole day". Both-or-neither enforced
+  /// by a CHECK constraint — see migration note at bottom of file.
+  startTime Int? @map("start_time")
+  endTime   Int? @map("end_time")
+
+  reason    String?
+  timezone  String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tutor User @relation("TutorAvailabilityExceptions", fields: [tutorId], references: [id], onDelete: Cascade)
+
+  @@index([tutorId, date]) // intentionally non-unique
+  @@map("tutor_availability_exceptions")
+}
+
+enum JobRequestType {
+  ONE_TIME
+  COURSE
+}
+
+model JobRequest {
+  id        String         @id @default(uuid())
+  learnerId String         @map("learner_id")
+  type      JobRequestType
+
+  title       String
+  description String? @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  learner   User       @relation("LearnerJobRequests", fields: [learnerId], references: [id], onDelete: Cascade)
+  proposals Proposal[]
+
+  @@index([learnerId])
+  @@index([type])
+  @@map("job_requests")
+}
+
+enum ProposalStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  WITHDRAWN
+
+  @@map("proposal_status")
+}
+
+model Proposal {
+  id           String @id @default(uuid())
+  jobRequestId String @map("job_request_id")
+  tutorId      String @map("tutor_id")
+
+  status ProposalStatus @default(PENDING)
+
+  /// 1 for ONE_TIME requests, N for COURSE requests. Stored on the
+  /// proposal (not just derived from jobRequest.type) so it stays fixed
+  /// once accepted, even if the tutor proposed a different count than
+  /// what the learner initially asked for.
+  totalSessions Int @map("total_sessions")
+
+  /// Uniform duration applied to every session in this proposal. If you
+  /// need per-session duration overrides later, move this onto
+  /// ProposalSession instead.
+  sessionDurationMinutes Int @map("session_duration_minutes")
+
+  message String? @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  jobRequest JobRequest        @relation(fields: [jobRequestId], references: [id], onDelete: Cascade)
+  tutor      User              @relation("TutorProposals", fields: [tutorId], references: [id], onDelete: Cascade)
+  sessions   ProposalSession[]
+
+  @@index([jobRequestId])
+  @@index([tutorId])
+  @@index([status])
+  @@map("proposals")
+}
+
+enum ProposalSessionStatus {
+  LOCKED // previous session not yet completed — cannot be scheduled
+  PENDING_SCHEDULE // unlocked, learner can pick a time
+  HELD // has an ACTIVE SlotHold
+  BOOKED // converted to a CONFIRMED Booking
+  COMPLETED // session happened (mirrors Booking.status = COMPLETED)
+  CANCELLED
+
+  @@map("proposal_session_status")
+}
+
+model ProposalSession {
+  id         String @id @default(uuid())
+  proposalId String @map("proposal_id")
+
+  /// Always 1 for ONE_TIME proposals. 1..totalSessions for COURSE.
+  sessionNumber Int @map("session_number")
+
+  /// Curriculum content. For ONE_TIME, defaults to something generic
+  /// ("Session") at creation time since there's no lesson plan to fill
+  /// in. For COURSE, the tutor sets this per lesson when structuring the
+  /// proposal — enforce "required for COURSE" at the application layer,
+  /// since a cross-table CHECK constraint here isn't practical.
+  title     String
+  objective String? @db.Text
+
+  /// Created as PENDING_SCHEDULE for session 1 always (including the
+  /// only session in a ONE_TIME proposal). For COURSE, sessions 2..N are
+  /// created as LOCKED and flipped to PENDING_SCHEDULE by application
+  /// logic once the prior session's Booking reaches COMPLETED.
+  status ProposalSessionStatus @default(LOCKED)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  proposal Proposal  @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  slotHold SlotHold?
+  booking  Booking?
+
+  @@unique([proposalId, sessionNumber])
+  @@index([proposalId])
+  @@index([proposalId, status])
+  @@map("proposal_sessions")
+}
+
+enum HoldStatus {
+  ACTIVE
+  EXPIRED
+  CONVERTED
+
+  @@map("hold_status")
+}
+
+model SlotHold {
+  id                String @id @default(uuid())
+  tutorId           String @map("tutor_id")
+  learnerId         String @map("learner_id")
+  proposalSessionId String @unique @map("proposal_session_id")
+
+  /// @db.Timestamptz: required so the generated `time_range` column
+  /// (tstzrange, raw-SQL migration note below) is IMMUTABLE — a plain
+  /// `timestamp` would need a session-timezone-dependent cast first.
+  startTime DateTime   @map("start_time") @db.Timestamptz(3)
+  endTime   DateTime   @map("end_time") @db.Timestamptz(3)
+  status    HoldStatus @default(ACTIVE)
+
+  /// Never trust `status` alone — always filter
+  /// `status = ACTIVE AND expiresAt > now()`. Expire stale rows
+  /// transactionally right before inserting a new hold for the tutor:
+  ///
+  ///   UPDATE "slot_holds" SET status = 'EXPIRED'
+  ///   WHERE tutor_id = $1 AND status = 'ACTIVE' AND expires_at <= now();
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tutor           User            @relation("TutorSlotHolds", fields: [tutorId], references: [id], onDelete: Cascade)
+  learner         User            @relation("LearnerSlotHolds", fields: [learnerId], references: [id], onDelete: Cascade)
+  proposalSession ProposalSession @relation(fields: [proposalSessionId], references: [id], onDelete: Cascade)
+  booking         Booking?
+
+  @@index([tutorId, startTime, endTime])
+  @@index([learnerId])
+  @@index([status, expiresAt])
+  @@map("slot_holds")
+}
+
+enum BookingStatus {
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+
+  @@map("booking_status")
+}
+
+model Booking {
+  id                String  @id @default(uuid())
+  tutorId           String  @map("tutor_id")
+  learnerId         String  @map("learner_id")
+  proposalSessionId String? @unique @map("proposal_session_id")
+  slotHoldId        String? @unique @map("slot_hold_id")
+
+  /// @db.Timestamptz: see the same note on SlotHold.startTime/endTime —
+  /// required for the generated `time_range` (tstzrange) column below.
+  startTime DateTime @map("start_time") @db.Timestamptz(3)
+  endTime   DateTime @map("end_time") @db.Timestamptz(3)
+
+  /// When flipped to COMPLETED (scheduled job checking
+  /// `now() > endTime AND status = CONFIRMED`), application logic also
+  /// flips the linked ProposalSession to COMPLETED and, for COURSE
+  /// proposals, unlocks the next session (LOCKED -> PENDING_SCHEDULE).
+  /// For ONE_TIME proposals this is a no-op past this point — there's no
+  /// next session to unlock.
+  status BookingStatus @default(CONFIRMED)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tutor           User             @relation("TutorBookings", fields: [tutorId], references: [id], onDelete: Cascade)
+  learner         User             @relation("LearnerBookings", fields: [learnerId], references: [id], onDelete: Cascade)
+  proposalSession ProposalSession? @relation(fields: [proposalSessionId], references: [id], onDelete: SetNull)
+  slotHold        SlotHold?        @relation(fields: [slotHoldId], references: [id], onDelete: SetNull)
+
+  @@index([tutorId, startTime, endTime])
+  @@index([learnerId])
+  @@map("bookings")
+}
+
+// =========================================================================
+// RAW SQL MIGRATION (append manually after `prisma migrate dev`)
+// =========================================================================
+//
+// CREATE EXTENSION IF NOT EXISTS btree_gist;
+//
+// ALTER TABLE "tutor_availability_rules"
+// ADD CONSTRAINT rule_time_order CHECK ("end_time" > "start_time");
+//
+// ALTER TABLE "tutor_availability_exceptions"
+// ADD CONSTRAINT exception_time_range_consistency CHECK (
+//   ("start_time" IS NULL AND "end_time" IS NULL)
+//   OR ("start_time" IS NOT NULL AND "end_time" IS NOT NULL AND "end_time" > "start_time")
+// );
+//
+// ALTER TABLE "slot_holds"
+// ADD COLUMN time_range tstzrange
+//   GENERATED ALWAYS AS (tstzrange("start_time", "end_time")) STORED;
+// ALTER TABLE "slot_holds"
+// ADD CONSTRAINT no_overlapping_active_holds
+// EXCLUDE USING gist ("tutor_id" WITH =, time_range WITH &&) WHERE (status = 'ACTIVE');
+//
+// ALTER TABLE "bookings"
+// ADD COLUMN time_range tstzrange
+//   GENERATED ALWAYS AS (tstzrange("start_time", "end_time")) STORED;
+// ALTER TABLE "bookings"
+// ADD CONSTRAINT no_overlapping_confirmed_bookings
+// EXCLUDE USING gist ("tutor_id" WITH =, time_range WITH &&) WHERE (status = 'CONFIRMED');
+//
+// ALTER TABLE "proposals"
+// ADD CONSTRAINT total_sessions_positive CHECK ("total_sessions" > 0);
+// ALTER TABLE "proposals"
+// ADD CONSTRAINT session_duration_positive CHECK ("session_duration_minutes" > 0);
+// ALTER TABLE "proposal_sessions"
+// ADD CONSTRAINT session_number_positive CHECK ("session_number" > 0);
+//
+// =========================================================================

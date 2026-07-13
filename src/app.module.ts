@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { ScheduleModule } from '@nestjs/schedule';
 import { SentryGlobalFilter } from '@sentry/nestjs/setup';
 import { ConfigModule } from '@nestjs/config';
 import { HealthModule } from './health/health.module';
@@ -16,6 +17,10 @@ import { LearnerModule } from './learner/learner.module';
 import { StorageModule } from './storage/storage.module';
 import { SkillsModule } from './skills/skills.module';
 import { CategoriesModule } from './categories/categories.module';
+import { AvailabilityModule } from './availability/availability.module';
+import { ProposalsModule } from './proposals/proposals.module';
+import { HoldsModule } from './holds/holds.module';
+import { BookingsModule } from './bookings/bookings.module';
 
 @Module({
   imports: [
@@ -25,6 +30,7 @@ import { CategoriesModule } from './categories/categories.module';
       envFilePath: '.env',
       cache: true,
     }),
+    ScheduleModule.forRoot(),
     HealthModule,
     PrismaModule,
     UsersModule,
@@ -36,6 +42,10 @@ import { CategoriesModule } from './categories/categories.module';
     StorageModule,
     SkillsModule,
     CategoriesModule,
+    AvailabilityModule,
+    ProposalsModule,
+    HoldsModule,
+    BookingsModule,
   ],
   controllers: [AppController],
   providers: [
