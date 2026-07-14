@@ -1,11 +1,13 @@
 generator client {
-  provider      = "prisma-client-js"
-  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+  provider        = "prisma-client-js"
+  binaryTargets   = ["native", "linux-musl-openssl-3.0.x"]
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [btree_gist]
 }
 
 enum UserRole {
@@ -58,7 +60,7 @@ model User {
   languages                   UserLanguage[]
   tutorAvailabilityRules      TutorAvailabilityRule[]      @relation("TutorAvailabilityRules")
   tutorAvailabilityExceptions TutorAvailabilityException[] @relation("TutorAvailabilityExceptions")
-  jobRequests                 JobRequest[]                 @relation("LearnerJobRequests")
+  learnRequests               LearnRequest[]               @relation("LearnerLearnRequests")
   proposals                   Proposal[]                   @relation("TutorProposals")
   tutorSlotHolds              SlotHold[]                   @relation("TutorSlotHolds")
   learnerSlotHolds            SlotHold[]                   @relation("LearnerSlotHolds")
@@ -94,7 +96,8 @@ model Category {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  specialties Specialty[]
+  specialties   Specialty[]
+  learnRequests LearnRequest[] @relation("CategoryLearnRequests")
 
   @@index([isActive])
   @@map("categories")
@@ -191,8 +194,9 @@ model Skill {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  tutorProfiles  TutorProfileSkill[]
-  portfolioItems PortfolioItemSkill[]
+  tutorProfiles      TutorProfileSkill[]
+  portfolioItems     PortfolioItemSkill[]
+  learnRequestSkills LearnRequestSkill[]
 
   @@index([name])
   @@map("skills")
@@ -394,8 +398,6 @@ model TutorAvailabilityException {
   date    DateTime      @db.Date
   type    ExceptionType
 
-  /// NULL start+end together means "whole day". Both-or-neither enforced
-  /// by a CHECK constraint — see migration note at bottom of file.
   startTime Int? @map("start_time")
   endTime   Int? @map("end_time")
 
@@ -406,32 +408,76 @@ model TutorAvailabilityException {
 
   tutor User @relation("TutorAvailabilityExceptions", fields: [tutorId], references: [id], onDelete: Cascade)
 
-  @@index([tutorId, date]) // intentionally non-unique
+  @@index([tutorId, date])
   @@map("tutor_availability_exceptions")
 }
 
-enum JobRequestType {
+enum LearnRequestStatus {
+  DRAFT
+  PENDING_REVIEW
+  OPEN
+  REJECTED
+  FILLED
+  CANCELLED
+
+  @@map("learn_request_status")
+}
+
+enum LearnRequestType {
   ONE_TIME
   COURSE
 }
 
-model JobRequest {
-  id        String         @id @default(uuid())
-  learnerId String         @map("learner_id")
-  type      JobRequestType
+enum ProficiencyLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
 
-  title       String
-  description String? @db.Text
+  @@map("proficiency_level")
+}
 
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+model LearnRequest {
+  id                 String             @id @default(uuid())
+  learnerId          String             @map("learner_id")
+  status             LearnRequestStatus @default(DRAFT) @map("status")
+  type               LearnRequestType?
+  level              ProficiencyLevel?  @map("level")
+  title              String
+  categoryId         String?            @map("category_id")
+  description        String?            @db.Text
+  preferredLanguages String[]           @default([]) @map("preferred_languages")
+  requestedFrequency Int?               @map("requested_frequency")
+  budgetMin          Decimal?           @map("budget_min") @db.Decimal(10, 2)
+  budgetMax          Decimal?           @map("budget_max") @db.Decimal(10, 2)
+  reviewedAt         DateTime?          @map("reviewed_at")
+  rejectionReason    String?            @map("rejection_reason") @db.Text
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
 
-  learner   User       @relation("LearnerJobRequests", fields: [learnerId], references: [id], onDelete: Cascade)
+  learner   User                @relation("LearnerLearnRequests", fields: [learnerId], references: [id], onDelete: Cascade)
   proposals Proposal[]
+  category  Category?           @relation("CategoryLearnRequests", fields: [categoryId], references: [id], onDelete: SetNull)
+  skills    LearnRequestSkill[]
 
   @@index([learnerId])
   @@index([type])
-  @@map("job_requests")
+  @@index([status])
+  @@map("learn_requests")
+}
+
+model LearnRequestSkill {
+  id             String   @id @default(uuid())
+  learnRequestId String   @map("learn_request_id")
+  skillId        String   @map("skill_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  learnRequest LearnRequest @relation(fields: [learnRequestId], references: [id], onDelete: Cascade)
+  skill        Skill        @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@unique([learnRequestId, skillId])
+  @@index([learnRequestId])
+  @@index([skillId])
+  @@map("learn_request_skills")
 }
 
 enum ProposalStatus {
@@ -444,33 +490,25 @@ enum ProposalStatus {
 }
 
 model Proposal {
-  id           String @id @default(uuid())
-  jobRequestId String @map("job_request_id")
-  tutorId      String @map("tutor_id")
+  id             String @id @default(uuid())
+  learnRequestId String @map("learn_request_id")
+  tutorId        String @map("tutor_id")
 
-  status ProposalStatus @default(PENDING)
-
-  /// 1 for ONE_TIME requests, N for COURSE requests. Stored on the
-  /// proposal (not just derived from jobRequest.type) so it stays fixed
-  /// once accepted, even if the tutor proposed a different count than
-  /// what the learner initially asked for.
-  totalSessions Int @map("total_sessions")
-
-  /// Uniform duration applied to every session in this proposal. If you
-  /// need per-session duration overrides later, move this onto
-  /// ProposalSession instead.
-  sessionDurationMinutes Int @map("session_duration_minutes")
+  status                 ProposalStatus @default(PENDING)
+  totalSessions          Int            @map("total_sessions")
+  sessionDurationMinutes Int            @map("session_duration_minutes")
+  totalPrice             Decimal        @map("total_price") @db.Decimal(10, 2)
 
   message String? @db.Text
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  jobRequest JobRequest        @relation(fields: [jobRequestId], references: [id], onDelete: Cascade)
-  tutor      User              @relation("TutorProposals", fields: [tutorId], references: [id], onDelete: Cascade)
-  sessions   ProposalSession[]
+  learnRequest LearnRequest      @relation(fields: [learnRequestId], references: [id], onDelete: Cascade)
+  tutor        User              @relation("TutorProposals", fields: [tutorId], references: [id], onDelete: Cascade)
+  sessions     ProposalSession[]
 
-  @@index([jobRequestId])
+  @@index([learnRequestId])
   @@index([tutorId])
   @@index([status])
   @@map("proposals")
@@ -488,25 +526,12 @@ enum ProposalSessionStatus {
 }
 
 model ProposalSession {
-  id         String @id @default(uuid())
-  proposalId String @map("proposal_id")
-
-  /// Always 1 for ONE_TIME proposals. 1..totalSessions for COURSE.
-  sessionNumber Int @map("session_number")
-
-  /// Curriculum content. For ONE_TIME, defaults to something generic
-  /// ("Session") at creation time since there's no lesson plan to fill
-  /// in. For COURSE, the tutor sets this per lesson when structuring the
-  /// proposal — enforce "required for COURSE" at the application layer,
-  /// since a cross-table CHECK constraint here isn't practical.
-  title     String
-  objective String? @db.Text
-
-  /// Created as PENDING_SCHEDULE for session 1 always (including the
-  /// only session in a ONE_TIME proposal). For COURSE, sessions 2..N are
-  /// created as LOCKED and flipped to PENDING_SCHEDULE by application
-  /// logic once the prior session's Booking reaches COMPLETED.
-  status ProposalSessionStatus @default(LOCKED)
+  id            String                @id @default(uuid())
+  proposalId    String                @map("proposal_id")
+  sessionNumber Int                   @map("session_number")
+  title         String
+  objective     String?               @db.Text
+  status        ProposalSessionStatus @default(LOCKED)
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -530,26 +555,15 @@ enum HoldStatus {
 }
 
 model SlotHold {
-  id                String @id @default(uuid())
-  tutorId           String @map("tutor_id")
-  learnerId         String @map("learner_id")
-  proposalSessionId String @unique @map("proposal_session_id")
-
-  /// @db.Timestamptz: required so the generated `time_range` column
-  /// (tstzrange, raw-SQL migration note below) is IMMUTABLE — a plain
-  /// `timestamp` would need a session-timezone-dependent cast first.
-  startTime DateTime   @map("start_time") @db.Timestamptz(3)
-  endTime   DateTime   @map("end_time") @db.Timestamptz(3)
-  status    HoldStatus @default(ACTIVE)
-
-  /// Never trust `status` alone — always filter
-  /// `status = ACTIVE AND expiresAt > now()`. Expire stale rows
-  /// transactionally right before inserting a new hold for the tutor:
-  ///
-  ///   UPDATE "slot_holds" SET status = 'EXPIRED'
-  ///   WHERE tutor_id = $1 AND status = 'ACTIVE' AND expires_at <= now();
-  expiresAt DateTime @map("expires_at")
-  createdAt DateTime @default(now()) @map("created_at")
+  id                String     @id @default(uuid())
+  tutorId           String     @map("tutor_id")
+  learnerId         String     @map("learner_id")
+  proposalSessionId String     @unique @map("proposal_session_id")
+  startTime         DateTime   @map("start_time") @db.Timestamptz(3)
+  endTime           DateTime   @map("end_time") @db.Timestamptz(3)
+  status            HoldStatus @default(ACTIVE)
+  expiresAt         DateTime   @map("expires_at") @db.Timestamptz(3)
+  createdAt         DateTime   @default(now()) @map("created_at")
 
   tutor           User            @relation("TutorSlotHolds", fields: [tutorId], references: [id], onDelete: Cascade)
   learner         User            @relation("LearnerSlotHolds", fields: [learnerId], references: [id], onDelete: Cascade)
@@ -571,24 +585,14 @@ enum BookingStatus {
 }
 
 model Booking {
-  id                String  @id @default(uuid())
-  tutorId           String  @map("tutor_id")
-  learnerId         String  @map("learner_id")
-  proposalSessionId String? @unique @map("proposal_session_id")
-  slotHoldId        String? @unique @map("slot_hold_id")
-
-  /// @db.Timestamptz: see the same note on SlotHold.startTime/endTime —
-  /// required for the generated `time_range` (tstzrange) column below.
-  startTime DateTime @map("start_time") @db.Timestamptz(3)
-  endTime   DateTime @map("end_time") @db.Timestamptz(3)
-
-  /// When flipped to COMPLETED (scheduled job checking
-  /// `now() > endTime AND status = CONFIRMED`), application logic also
-  /// flips the linked ProposalSession to COMPLETED and, for COURSE
-  /// proposals, unlocks the next session (LOCKED -> PENDING_SCHEDULE).
-  /// For ONE_TIME proposals this is a no-op past this point — there's no
-  /// next session to unlock.
-  status BookingStatus @default(CONFIRMED)
+  id                String        @id @default(uuid())
+  tutorId           String        @map("tutor_id")
+  learnerId         String        @map("learner_id")
+  proposalSessionId String?       @unique @map("proposal_session_id")
+  slotHoldId        String?       @unique @map("slot_hold_id")
+  startTime         DateTime      @map("start_time") @db.Timestamptz(3)
+  endTime           DateTime      @map("end_time") @db.Timestamptz(3)
+  status            BookingStatus @default(CONFIRMED)
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -602,41 +606,3 @@ model Booking {
   @@index([learnerId])
   @@map("bookings")
 }
-
-// =========================================================================
-// RAW SQL MIGRATION (append manually after `prisma migrate dev`)
-// =========================================================================
-//
-// CREATE EXTENSION IF NOT EXISTS btree_gist;
-//
-// ALTER TABLE "tutor_availability_rules"
-// ADD CONSTRAINT rule_time_order CHECK ("end_time" > "start_time");
-//
-// ALTER TABLE "tutor_availability_exceptions"
-// ADD CONSTRAINT exception_time_range_consistency CHECK (
-//   ("start_time" IS NULL AND "end_time" IS NULL)
-//   OR ("start_time" IS NOT NULL AND "end_time" IS NOT NULL AND "end_time" > "start_time")
-// );
-//
-// ALTER TABLE "slot_holds"
-// ADD COLUMN time_range tstzrange
-//   GENERATED ALWAYS AS (tstzrange("start_time", "end_time")) STORED;
-// ALTER TABLE "slot_holds"
-// ADD CONSTRAINT no_overlapping_active_holds
-// EXCLUDE USING gist ("tutor_id" WITH =, time_range WITH &&) WHERE (status = 'ACTIVE');
-//
-// ALTER TABLE "bookings"
-// ADD COLUMN time_range tstzrange
-//   GENERATED ALWAYS AS (tstzrange("start_time", "end_time")) STORED;
-// ALTER TABLE "bookings"
-// ADD CONSTRAINT no_overlapping_confirmed_bookings
-// EXCLUDE USING gist ("tutor_id" WITH =, time_range WITH &&) WHERE (status = 'CONFIRMED');
-//
-// ALTER TABLE "proposals"
-// ADD CONSTRAINT total_sessions_positive CHECK ("total_sessions" > 0);
-// ALTER TABLE "proposals"
-// ADD CONSTRAINT session_duration_positive CHECK ("session_duration_minutes" > 0);
-// ALTER TABLE "proposal_sessions"
-// ADD CONSTRAINT session_number_positive CHECK ("session_number" > 0);
-//
-// =========================================================================

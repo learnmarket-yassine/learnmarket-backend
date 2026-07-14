@@ -1,18 +1,25 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { Email } from './email.service';
+import { ConfigService } from '@nestjs/config';
+import { EmailService } from './email.service';
 
-describe('Email', () => {
-  let provider: Email;
+describe('EmailService', () => {
+  let service: EmailService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [Email],
+      providers: [
+        EmailService,
+        {
+          provide: ConfigService,
+          useValue: { getOrThrow: jest.fn().mockReturnValue('test-api-key') },
+        },
+      ],
     }).compile();
 
-    provider = module.get<Email>(Email);
+    service = module.get<EmailService>(EmailService);
   });
 
   it('should be defined', () => {
-    expect(provider).toBeDefined();
+    expect(service).toBeDefined();
   });
 });

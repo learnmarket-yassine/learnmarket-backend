@@ -19,6 +19,7 @@ import { SkillsModule } from './skills/skills.module';
 import { CategoriesModule } from './categories/categories.module';
 import { AvailabilityModule } from './availability/availability.module';
 import { ProposalsModule } from './proposals/proposals.module';
+import { LearnRequestsModule } from './learn-requests/learn-requests.module';
 import { HoldsModule } from './holds/holds.module';
 import { BookingsModule } from './bookings/bookings.module';
 
@@ -44,6 +45,7 @@ import { BookingsModule } from './bookings/bookings.module';
     CategoriesModule,
     AvailabilityModule,
     ProposalsModule,
+    LearnRequestsModule,
     HoldsModule,
     BookingsModule,
   ],
