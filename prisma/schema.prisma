@@ -96,8 +96,9 @@ model Category {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  specialties   Specialty[]
-  learnRequests LearnRequest[] @relation("CategoryLearnRequests")
+  specialties    Specialty[]
+  learnRequests  LearnRequest[]  @relation("CategoryLearnRequests")
+  categorySkills CategorySkill[]
 
   @@index([isActive])
   @@map("categories")
@@ -197,9 +198,25 @@ model Skill {
   tutorProfiles      TutorProfileSkill[]
   portfolioItems     PortfolioItemSkill[]
   learnRequestSkills LearnRequestSkill[]
+  categorySkills     CategorySkill[]
 
   @@index([name])
   @@map("skills")
+}
+
+model CategorySkill {
+  id         String   @id @default(uuid())
+  categoryId String   @map("category_id")
+  skillId    String   @map("skill_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  skill    Skill    @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@unique([categoryId, skillId])
+  @@index([categoryId])
+  @@index([skillId])
+  @@map("category_skills")
 }
 
 model TutorProfileSkill {
@@ -414,9 +431,7 @@ model TutorAvailabilityException {
 
 enum LearnRequestStatus {
   DRAFT
-  PENDING_REVIEW
   OPEN
-  REJECTED
   FILLED
   CANCELLED
 
@@ -449,8 +464,6 @@ model LearnRequest {
   requestedFrequency Int?               @map("requested_frequency")
   budgetMin          Decimal?           @map("budget_min") @db.Decimal(10, 2)
   budgetMax          Decimal?           @map("budget_max") @db.Decimal(10, 2)
-  reviewedAt         DateTime?          @map("reviewed_at")
-  rejectionReason    String?            @map("rejection_reason") @db.Text
   createdAt          DateTime           @default(now()) @map("created_at")
   updatedAt          DateTime           @updatedAt @map("updated_at")
 
