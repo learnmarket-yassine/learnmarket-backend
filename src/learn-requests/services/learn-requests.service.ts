@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -14,27 +13,16 @@ import type { AuthUser } from '../../common/decorators/current-user.decorator';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CategoriesService } from '../../categories/categories.service';
 import { SkillsService } from '../../skills/skills.service';
-import { CreateLearnRequestDto } from '../dto/create-learn-request.dto';
+import { CreateLearnRequestDraftDto } from '../dto/create-draft.dto';
 import { UpdateLearnRequestDto } from '../dto/update-learn-request.dto';
 import { ListLearnRequestsQueryDto } from '../dto/list-learn-requests-query.dto';
 import { AdminListLearnRequestsQueryDto } from '../dto/admin-list-learn-requests-query.dto';
+import { LearnRequestValidationService } from './learn-request-validation.service';
 
 const DETAIL_INCLUDE = {
   category: true,
   skills: { include: { skill: true } },
 } as const;
-
-// PATCH is allowed while DRAFT/REJECTED (plain edit) or OPEN (edit + reset to review).
-const EDITABLE_STATUSES = new Set<LearnRequestStatus>([
-  LearnRequestStatus.DRAFT,
-  LearnRequestStatus.REJECTED,
-  LearnRequestStatus.OPEN,
-]);
-
-const SUBMITTABLE_STATUSES = new Set<LearnRequestStatus>([
-  LearnRequestStatus.DRAFT,
-  LearnRequestStatus.REJECTED,
-]);
 
 @Injectable()
 export class LearnRequestsService {
@@ -42,22 +30,15 @@ export class LearnRequestsService {
     private readonly prisma: PrismaService,
     private readonly categories: CategoriesService,
     private readonly skills: SkillsService,
+    private readonly validation: LearnRequestValidationService,
   ) {}
 
-  async createDraft(learnerId: string, dto: CreateLearnRequestDto) {
-    const { skillIds, ...rest } = dto;
-    if (rest.categoryId) await this.categories.assertActive(rest.categoryId);
-    const uniqueSkillIds = skillIds?.length
-      ? await this.skills.assertAllActive(skillIds)
-      : [];
-
+  createDraft(learnerId: string, dto: CreateLearnRequestDraftDto) {
     return this.prisma.learnRequest.create({
       data: {
         learnerId,
-        ...rest,
-        skills: uniqueSkillIds.length
-          ? { create: uniqueSkillIds.map((skillId) => ({ skillId })) }
-          : undefined,
+        type: dto.type,
+        title: dto.title,
       },
       include: DETAIL_INCLUDE,
     });
@@ -104,9 +85,9 @@ export class LearnRequestsService {
 
   async update(learnerId: string, id: string, dto: UpdateLearnRequestDto) {
     const existing = await this.findOwnedOrThrow(learnerId, id);
-    if (!EDITABLE_STATUSES.has(existing.status)) {
+    if (existing.status !== LearnRequestStatus.DRAFT) {
       throw new ConflictException(
-        'Learn request cannot be edited in its current status',
+        'Learn request can only be edited while it is a draft',
       );
     }
 
@@ -119,53 +100,35 @@ export class LearnRequestsService {
           ? await this.skills.assertAllActive(skillIds)
           : [];
 
-    const wasOpen = existing.status === LearnRequestStatus.OPEN;
-
     return this.prisma.$transaction(async (tx) => {
       if (uniqueSkillIds !== undefined) {
         await this.diffSkills(tx, id, uniqueSkillIds);
       }
       return tx.learnRequest.update({
         where: { id },
-        data: {
-          ...rest,
-          ...(wasOpen
-            ? {
-                status: LearnRequestStatus.PENDING_REVIEW,
-                reviewedAt: null,
-                rejectionReason: null,
-              }
-            : {}),
-        },
+        data: rest,
         include: DETAIL_INCLUDE,
       });
     });
   }
 
-  async submit(learnerId: string, id: string) {
+  async publish(learnerId: string, id: string) {
     const existing = await this.findOwnedOrThrow(learnerId, id);
-    if (!SUBMITTABLE_STATUSES.has(existing.status)) {
+    if (existing.status !== LearnRequestStatus.DRAFT) {
       throw new ConflictException(
-        'Learn request must be a draft or rejected to be submitted',
+        'Learn request must be a draft to be published',
       );
     }
 
-    const errors = this.collectSubmitErrors(existing);
-    if (errors.length) {
-      throw new BadRequestException({
-        statusCode: 400,
-        error: 'Bad Request',
-        message: errors,
-      });
-    }
+    const detailed = await this.prisma.learnRequest.findUniqueOrThrow({
+      where: { id },
+      include: DETAIL_INCLUDE,
+    });
+    this.validation.assertPublishable(detailed);
 
     return this.prisma.learnRequest.update({
       where: { id },
-      data: {
-        status: LearnRequestStatus.PENDING_REVIEW,
-        reviewedAt: null,
-        rejectionReason: null,
-      },
+      data: { status: LearnRequestStatus.OPEN },
       include: DETAIL_INCLUDE,
     });
   }
@@ -202,36 +165,6 @@ export class LearnRequestsService {
     });
   }
 
-  async approve(id: string) {
-    const { count } = await this.prisma.learnRequest.updateMany({
-      where: { id, status: LearnRequestStatus.PENDING_REVIEW },
-      data: { status: LearnRequestStatus.OPEN, reviewedAt: new Date() },
-    });
-    if (count === 0) await this.assertReviewConflictReason(id);
-
-    return this.prisma.learnRequest.findUniqueOrThrow({
-      where: { id },
-      include: DETAIL_INCLUDE,
-    });
-  }
-
-  async reject(id: string, reason: string) {
-    const { count } = await this.prisma.learnRequest.updateMany({
-      where: { id, status: LearnRequestStatus.PENDING_REVIEW },
-      data: {
-        status: LearnRequestStatus.REJECTED,
-        reviewedAt: new Date(),
-        rejectionReason: reason,
-      },
-    });
-    if (count === 0) await this.assertReviewConflictReason(id);
-
-    return this.prisma.learnRequest.findUniqueOrThrow({
-      where: { id },
-      include: DETAIL_INCLUDE,
-    });
-  }
-
   // ---------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------
@@ -261,35 +194,6 @@ export class LearnRequestsService {
         data: toAdd.map((skillId) => ({ learnRequestId, skillId })),
       });
     }
-  }
-
-  private collectSubmitErrors(learnRequest: LearnRequest): string[] {
-    const errors: string[] = [];
-    if (!learnRequest.title?.trim()) errors.push('title is required');
-    if (!learnRequest.type) errors.push('type is required');
-    if (!learnRequest.categoryId) errors.push('categoryId is required');
-    if (
-      learnRequest.budgetMin != null &&
-      learnRequest.budgetMax != null &&
-      Number(learnRequest.budgetMax) < Number(learnRequest.budgetMin)
-    ) {
-      errors.push('budgetMax must be greater than or equal to budgetMin');
-    }
-    if (learnRequest.preferredLanguages?.some((lang) => !lang?.trim())) {
-      errors.push('preferredLanguages entries must not be empty');
-    }
-    return errors;
-  }
-
-  // Distinguishes "not found" (404) from "found but not pending review" (409)
-  // for the admin approve/reject optimistic-concurrency guard.
-  private async assertReviewConflictReason(id: string): Promise<never> {
-    const exists = await this.prisma.learnRequest.findUnique({
-      where: { id },
-      select: { id: true },
-    });
-    if (!exists) throw new NotFoundException('Learn request not found');
-    throw new ConflictException('Learn request is not pending review');
   }
 
   private async findOwnedOrThrow(

@@ -148,10 +148,17 @@ export class ProposalsService {
       throw new ConflictException('Proposal is not pending');
     }
 
-    return this.prisma.proposal.update({
-      where: { id: proposalId },
-      data: { status: ProposalStatus.ACCEPTED },
-      include: PROPOSAL_INCLUDE,
+    return this.prisma.$transaction(async (tx) => {
+      await tx.learnRequest.update({
+        where: { id: proposal.learnRequestId },
+        data: { status: LearnRequestStatus.CLOSED },
+      });
+
+      return tx.proposal.update({
+        where: { id: proposalId },
+        data: { status: ProposalStatus.ACCEPTED },
+        include: PROPOSAL_INCLUDE,
+      });
     });
   }
 

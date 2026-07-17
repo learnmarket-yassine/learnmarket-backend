@@ -432,8 +432,10 @@ model TutorAvailabilityException {
 enum LearnRequestStatus {
   DRAFT
   OPEN
-  FILLED
-  CANCELLED
+  CLOSED // hiring finished — a proposal was accepted, no longer accepting new ones
+  CANCELLED // learner voluntarily cancelled before hiring
+  COMPLETED // all sessions finished — set once the last session completes
+  REMOVED
 
   @@map("learn_request_status")
 }

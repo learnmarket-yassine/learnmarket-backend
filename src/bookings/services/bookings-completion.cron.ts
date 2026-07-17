@@ -35,7 +35,12 @@ export class BookingsCompletionCron {
         });
 
         const { proposal } = booking.proposalSession;
-        if (proposal.learnRequest.type === LearnRequestType.COURSE) {
+        if (booking.proposalSession.sessionNumber === proposal.totalSessions) {
+          await tx.learnRequest.update({
+            where: { id: proposal.learnRequest.id },
+            data: { status: 'COMPLETED' },
+          });
+        } else if (proposal.learnRequest.type === LearnRequestType.COURSE) {
           const next = await tx.proposalSession.findFirst({
             where: {
               proposalId: proposal.id,

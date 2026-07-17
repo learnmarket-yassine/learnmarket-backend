@@ -1,5 +1,4 @@
 -- This is an empty migration.
--- This is an empty migration.
 ALTER TABLE "tutor_availability_rules"
 ADD CONSTRAINT rule_time_order CHECK ("end_time" > "start_time");
 

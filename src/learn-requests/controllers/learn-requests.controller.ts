@@ -19,7 +19,7 @@ import {
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { LearnRequestsService } from '../services/learn-requests.service';
-import { CreateLearnRequestDto } from '../dto/create-learn-request.dto';
+import { CreateLearnRequestDraftDto } from '../dto/create-draft.dto';
 import { UpdateLearnRequestDto } from '../dto/update-learn-request.dto';
 import { ListLearnRequestsQueryDto } from '../dto/list-learn-requests-query.dto';
 
@@ -33,7 +33,7 @@ export class LearnRequestsController {
   @HttpCode(HttpStatus.CREATED)
   createDraft(
     @CurrentUser('id') learnerId: string,
-    @Body() dto: CreateLearnRequestDto,
+    @Body() dto: CreateLearnRequestDraftDto,
   ) {
     return this.learnRequests.createDraft(learnerId, dto);
   }
@@ -65,10 +65,10 @@ export class LearnRequestsController {
     return this.learnRequests.update(learnerId, id, dto);
   }
 
-  @Post(':id/submit')
+  @Post(':id/publish')
   @Roles(UserRole.LEARNER)
-  submit(@CurrentUser('id') learnerId: string, @Param('id') id: string) {
-    return this.learnRequests.submit(learnerId, id);
+  publish(@CurrentUser('id') learnerId: string, @Param('id') id: string) {
+    return this.learnRequests.publish(learnerId, id);
   }
 
   @Post(':id/cancel')
