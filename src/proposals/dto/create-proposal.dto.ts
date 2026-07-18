@@ -3,6 +3,7 @@ import {
   ArrayMinSize,
   IsArray,
   IsInt,
+  IsNumber,
   IsOptional,
   IsPositive,
   IsString,
@@ -22,6 +23,10 @@ export class CreateProposalDto {
   @IsInt()
   @IsPositive()
   totalSessions!: number;
+
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @IsPositive()
+  totalPrice!: number;
 
   @IsOptional()
   @IsArray()

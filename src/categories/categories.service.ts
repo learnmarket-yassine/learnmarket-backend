@@ -94,7 +94,7 @@ export class CategoriesService {
     return category;
   }
 
-  private async findOneOrThrow(id: string) {
+  async findOneOrThrow(id: string) {
     const category = await this.prisma.category.findUnique({ where: { id } });
     if (!category) throw new NotFoundException('Category not found');
     return category;

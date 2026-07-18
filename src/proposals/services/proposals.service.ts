@@ -6,7 +6,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
-  JobRequestType,
+  LearnRequestStatus,
+  LearnRequestType,
   Proposal,
   ProposalSessionStatus,
   ProposalStatus,
@@ -23,16 +24,23 @@ const PROPOSAL_INCLUDE = { sessions: true } as const;
 export class ProposalsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(tutorId: string, jobRequestId: string, dto: CreateProposalDto) {
-    const jobRequest = await this.prisma.jobRequest.findUnique({
-      where: { id: jobRequestId },
+  async create(
+    tutorId: string,
+    learnRequestId: string,
+    dto: CreateProposalDto,
+  ) {
+    const learnRequest = await this.prisma.learnRequest.findUnique({
+      where: { id: learnRequestId },
     });
-    if (!jobRequest) throw new NotFoundException('Job request not found');
+    if (!learnRequest) throw new NotFoundException('Learn request not found');
+    if (learnRequest.status !== LearnRequestStatus.OPEN) {
+      throw new ConflictException('Learn request is not open for proposals');
+    }
 
     let totalSessions: number;
     let lessons: { title: string; objective?: string }[];
 
-    if (jobRequest.type === JobRequestType.COURSE) {
+    if (learnRequest.type === LearnRequestType.COURSE) {
       if (!dto.lessons || dto.lessons.length !== dto.totalSessions) {
         throw new BadRequestException(
           `COURSE proposals require exactly totalSessions (${dto.totalSessions}) lesson entries`,
@@ -53,10 +61,11 @@ export class ProposalsService {
     return this.prisma.$transaction(async (tx) => {
       const proposal = await tx.proposal.create({
         data: {
-          jobRequestId,
+          learnRequestId,
           tutorId,
           totalSessions,
           sessionDurationMinutes: dto.sessionDurationMinutes,
+          totalPrice: dto.totalPrice,
           message: dto.message,
         },
       });
@@ -84,7 +93,7 @@ export class ProposalsService {
   async findOneForViewer(viewer: AuthUser, id: string) {
     const proposal = await this.prisma.proposal.findUnique({
       where: { id },
-      include: { ...PROPOSAL_INCLUDE, jobRequest: true },
+      include: { ...PROPOSAL_INCLUDE, learnRequest: true },
     });
     if (!proposal) throw new NotFoundException('Proposal not found');
     this.assertViewable(viewer, proposal);
@@ -100,7 +109,7 @@ export class ProposalsService {
       });
     }
     return this.prisma.proposal.findMany({
-      where: { jobRequest: { learnerId: viewer.id } },
+      where: { learnRequest: { learnerId: viewer.id } },
       include: PROPOSAL_INCLUDE,
       orderBy: { createdAt: 'desc' },
     });
@@ -129,20 +138,27 @@ export class ProposalsService {
   async accept(learnerId: string, proposalId: string) {
     const proposal = await this.prisma.proposal.findUnique({
       where: { id: proposalId },
-      include: { jobRequest: true },
+      include: { learnRequest: true },
     });
     if (!proposal) throw new NotFoundException('Proposal not found');
-    if (proposal.jobRequest.learnerId !== learnerId) {
-      throw new ForbiddenException('You do not own this job request');
+    if (proposal.learnRequest.learnerId !== learnerId) {
+      throw new ForbiddenException('You do not own this learn request');
     }
     if (proposal.status !== ProposalStatus.PENDING) {
       throw new ConflictException('Proposal is not pending');
     }
 
-    return this.prisma.proposal.update({
-      where: { id: proposalId },
-      data: { status: ProposalStatus.ACCEPTED },
-      include: PROPOSAL_INCLUDE,
+    return this.prisma.$transaction(async (tx) => {
+      await tx.learnRequest.update({
+        where: { id: proposal.learnRequestId },
+        data: { status: LearnRequestStatus.CLOSED },
+      });
+
+      return tx.proposal.update({
+        where: { id: proposalId },
+        data: { status: ProposalStatus.ACCEPTED },
+        include: PROPOSAL_INCLUDE,
+      });
     });
   }
 
@@ -159,10 +175,10 @@ export class ProposalsService {
 
   private assertViewable(
     viewer: AuthUser,
-    proposal: { tutorId: string; jobRequest: { learnerId: string } },
+    proposal: { tutorId: string; learnRequest: { learnerId: string } },
   ): void {
     const isTutor = proposal.tutorId === viewer.id;
-    const isLearner = proposal.jobRequest.learnerId === viewer.id;
+    const isLearner = proposal.learnRequest.learnerId === viewer.id;
     if (!isTutor && !isLearner) {
       throw new ForbiddenException('You do not have access to this proposal');
     }

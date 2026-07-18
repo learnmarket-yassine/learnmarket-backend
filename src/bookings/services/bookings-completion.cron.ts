@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { JobRequestType } from '@prisma/client';
+import { LearnRequestType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
@@ -15,7 +15,7 @@ export class BookingsCompletionCron {
       where: { status: 'CONFIRMED', endTime: { lt: new Date() } },
       include: {
         proposalSession: {
-          include: { proposal: { include: { jobRequest: true } } },
+          include: { proposal: { include: { learnRequest: true } } },
         },
       },
     });
@@ -35,7 +35,12 @@ export class BookingsCompletionCron {
         });
 
         const { proposal } = booking.proposalSession;
-        if (proposal.jobRequest.type === JobRequestType.COURSE) {
+        if (booking.proposalSession.sessionNumber === proposal.totalSessions) {
+          await tx.learnRequest.update({
+            where: { id: proposal.learnRequest.id },
+            data: { status: 'COMPLETED' },
+          });
+        } else if (proposal.learnRequest.type === LearnRequestType.COURSE) {
           const next = await tx.proposalSession.findFirst({
             where: {
               proposalId: proposal.id,

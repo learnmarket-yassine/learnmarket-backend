@@ -53,15 +53,16 @@ describe('HoldsService (integration, real DB)', () => {
     tutorId = tutor.id;
     learnerId = learner.id;
 
-    const jobRequest = await prisma.jobRequest.create({
+    const learnRequest = await prisma.learnRequest.create({
       data: { learnerId, type: 'ONE_TIME', title: 'Integration test job' },
     });
     const proposal = await prisma.proposal.create({
       data: {
-        jobRequestId: jobRequest.id,
+        learnRequestId: learnRequest.id,
         tutorId,
         totalSessions: 2,
         sessionDurationMinutes: 60,
+        totalPrice: 100,
       },
     });
     const [sessionA, sessionB] = await Promise.all([
@@ -87,8 +88,10 @@ describe('HoldsService (integration, real DB)', () => {
   });
 
   afterEach(async () => {
-    await prisma.jobRequest.deleteMany({ where: { learnerId } });
-    await prisma.user.deleteMany({ where: { id: { in: [tutorId, learnerId] } } });
+    await prisma.learnRequest.deleteMany({ where: { learnerId } });
+    await prisma.user.deleteMany({
+      where: { id: { in: [tutorId, learnerId] } },
+    });
   });
 
   it('allows exactly one of two concurrent overlapping holds to succeed', async () => {

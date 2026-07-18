@@ -1,9 +1,4 @@
--- Hand-written constraints not expressible in schema.prisma:
--- exclusion constraints, multi-column CHECK constraints, and the btree_gist extension.
--- This migration was generated with `--create-only` and filled in by hand.
-
-CREATE EXTENSION IF NOT EXISTS btree_gist;
-
+-- This is an empty migration.
 ALTER TABLE "tutor_availability_rules"
 ADD CONSTRAINT rule_time_order CHECK ("end_time" > "start_time");
 
@@ -33,3 +28,14 @@ ALTER TABLE "proposals"
 ADD CONSTRAINT session_duration_positive CHECK ("session_duration_minutes" > 0);
 ALTER TABLE "proposal_sessions"
 ADD CONSTRAINT session_number_positive CHECK ("session_number" > 0);
+
+
+ALTER TABLE "learn_requests"
+ADD CONSTRAINT budget_range_valid CHECK (
+budget_min IS NULL OR budget_max IS NULL OR budget_max >= budget_min
+);
+
+ALTER TABLE "learn_requests"
+ADD CONSTRAINT required_fields_when_submitted CHECK (
+status = 'DRAFT' OR (type IS NOT NULL AND category_id IS NOT NULL)
+);

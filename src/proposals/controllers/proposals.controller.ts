@@ -26,15 +26,15 @@ import { ProposalsService } from '../services/proposals.service';
 export class ProposalsController {
   constructor(private readonly proposals: ProposalsService) {}
 
-  @Post('job-requests/:jobRequestId/proposals')
+  @Post('learn-requests/:learnRequestId/proposals')
   @Roles(UserRole.TUTOR)
   @HttpCode(HttpStatus.CREATED)
   create(
     @CurrentUser('id') tutorId: string,
-    @Param('jobRequestId') jobRequestId: string,
+    @Param('learnRequestId') learnRequestId: string,
     @Body() dto: CreateProposalDto,
   ) {
-    return this.proposals.create(tutorId, jobRequestId, dto);
+    return this.proposals.create(tutorId, learnRequestId, dto);
   }
 
   @Get('proposals')

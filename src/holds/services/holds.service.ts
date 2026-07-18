@@ -18,10 +18,10 @@ export class HoldsService {
   async requestHold(learnerId: string, dto: CreateHoldDto) {
     const session = await this.prisma.proposalSession.findUnique({
       where: { id: dto.proposalSessionId },
-      include: { proposal: { include: { jobRequest: true } } },
+      include: { proposal: { include: { learnRequest: true } } },
     });
     if (!session) throw new NotFoundException('Proposal session not found');
-    if (session.proposal.jobRequest.learnerId !== learnerId) {
+    if (session.proposal.learnRequest.learnerId !== learnerId) {
       throw new ForbiddenException('You do not own this proposal session');
     }
 
