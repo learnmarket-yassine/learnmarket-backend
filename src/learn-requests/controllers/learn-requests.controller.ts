@@ -21,7 +21,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { LearnRequestsService } from '../services/learn-requests.service';
 import { CreateLearnRequestDraftDto } from '../dto/create-draft.dto';
 import { UpdateLearnRequestDto } from '../dto/update-learn-request.dto';
-import { ListLearnRequestsQueryDto } from '../dto/list-learn-requests-query.dto';
+import { GetLearnRequestsQueryDto } from '../dto/list-learn-requests-query.dto';
 
 @Controller('learn-requests')
 @UseGuards(RolesGuard)
@@ -38,16 +38,12 @@ export class LearnRequestsController {
     return this.learnRequests.createDraft(learnerId, dto);
   }
 
-  @Get('mine')
-  @Roles(UserRole.LEARNER)
-  findMine(@CurrentUser('id') learnerId: string) {
-    return this.learnRequests.findMine(learnerId);
-  }
-
   @Get()
-  @Roles(UserRole.TUTOR)
-  findOpenFeed(@Query() query: ListLearnRequestsQueryDto) {
-    return this.learnRequests.findOpenFeed(query);
+  findMany(
+    @CurrentUser() user: AuthUser,
+    @Query() query: GetLearnRequestsQueryDto,
+  ) {
+    return this.learnRequests.findMany(user, query);
   }
 
   @Get(':id')

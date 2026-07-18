@@ -7,22 +7,28 @@ import {
   LearnRequest,
   LearnRequestStatus,
   Prisma,
+  ProposalSessionStatus,
+  ProposalStatus,
   UserRole,
 } from '@prisma/client';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
+import { buildScopedWhere } from '../../common/filtering/scoped-where.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CategoriesService } from '../../categories/categories.service';
 import { SkillsService } from '../../skills/skills.service';
 import { CreateLearnRequestDraftDto } from '../dto/create-draft.dto';
 import { UpdateLearnRequestDto } from '../dto/update-learn-request.dto';
-import { ListLearnRequestsQueryDto } from '../dto/list-learn-requests-query.dto';
-import { AdminListLearnRequestsQueryDto } from '../dto/admin-list-learn-requests-query.dto';
+import { GetLearnRequestsQueryDto } from '../dto/list-learn-requests-query.dto';
 import { LearnRequestValidationService } from './learn-request-validation.service';
 
 const DETAIL_INCLUDE = {
   category: true,
   skills: { include: { skill: true } },
 } as const;
+
+type LearnRequestWithRelations = Prisma.LearnRequestGetPayload<{
+  include: typeof DETAIL_INCLUDE;
+}>;
 
 @Injectable()
 export class LearnRequestsService {
@@ -44,24 +50,61 @@ export class LearnRequestsService {
     });
   }
 
-  findMine(learnerId: string) {
-    return this.prisma.learnRequest.findMany({
-      where: { learnerId },
-      include: DETAIL_INCLUDE,
-      orderBy: { createdAt: 'desc' },
-    });
-  }
+  async findMany(user: AuthUser, query: GetLearnRequestsQueryDto) {
+    const baseWhere: Prisma.LearnRequestWhereInput =
+      user.role === UserRole.ADMIN
+        ? {}
+        : user.role === UserRole.TUTOR
+          ? { status: LearnRequestStatus.OPEN }
+          : { learnerId: user.id }; // LEARNER: own requests, any status
 
-  findOpenFeed(query: ListLearnRequestsQueryDto) {
-    return this.prisma.learnRequest.findMany({
-      where: {
-        status: LearnRequestStatus.OPEN,
-        categoryId: query.categoryId,
-        type: query.type,
-      },
-      include: DETAIL_INCLUDE,
-      orderBy: { createdAt: 'desc' },
-    });
+    const narrowingWhere: Prisma.LearnRequestWhereInput = {};
+    if (query.categoryId) narrowingWhere.categoryId = query.categoryId;
+    if (query.type) narrowingWhere.type = query.type;
+    if (query.search) {
+      narrowingWhere.title = { contains: query.search, mode: 'insensitive' };
+    }
+    // A TUTOR's status param is silently dropped -- never applied, so
+    // there is no code path where it can widen past OPEN.
+    if (query.status?.length && user.role !== UserRole.TUTOR) {
+      narrowingWhere.status = { in: query.status };
+    }
+    if (query.actionNeeded) {
+      narrowingWhere.OR = [
+        {
+          status: LearnRequestStatus.OPEN,
+          proposals: { some: { status: ProposalStatus.PENDING } },
+        },
+        {
+          status: LearnRequestStatus.CLOSED,
+          proposals: {
+            some: {
+              sessions: {
+                some: { status: ProposalSessionStatus.PENDING_SCHEDULE },
+              },
+            },
+          },
+        },
+      ];
+    }
+
+    const where = buildScopedWhere(baseWhere, narrowingWhere);
+
+    const [items, totalCount] = await this.prisma.$transaction([
+      this.prisma.learnRequest.findMany({
+        where,
+        skip: query.page * query.take,
+        take: query.take,
+        orderBy: { createdAt: 'desc' },
+        include: DETAIL_INCLUDE,
+      }),
+      this.prisma.learnRequest.count({ where }),
+    ]);
+
+    return {
+      paginatedResult: await this.attachActionNeeded(items),
+      totalCount,
+    };
   }
 
   async findOneDetail(viewer: AuthUser, id: string) {
@@ -154,20 +197,58 @@ export class LearnRequestsService {
   }
 
   // ---------------------------------------------------------------------
-  // Admin
-  // ---------------------------------------------------------------------
-
-  findAllForAdmin(query: AdminListLearnRequestsQueryDto) {
-    return this.prisma.learnRequest.findMany({
-      where: { status: query.status },
-      include: DETAIL_INCLUDE,
-      orderBy: { createdAt: 'asc' },
-    });
-  }
-
-  // ---------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------
+
+  private async attachActionNeeded(
+    items: LearnRequestWithRelations[],
+  ): Promise<(LearnRequestWithRelations & { actionNeeded: boolean })[]> {
+    const openIds = items
+      .filter((item) => item.status === LearnRequestStatus.OPEN)
+      .map((item) => item.id);
+    const closedIds = items
+      .filter((item) => item.status === LearnRequestStatus.CLOSED)
+      .map((item) => item.id);
+
+    const pendingProposalsPromise: Promise<{ learnRequestId: string }[]> =
+      openIds.length
+        ? this.prisma.proposal.findMany({
+            where: {
+              learnRequestId: { in: openIds },
+              status: ProposalStatus.PENDING,
+            },
+            select: { learnRequestId: true },
+            distinct: ['learnRequestId'],
+          })
+        : Promise.resolve([]);
+
+    const pendingSessionsPromise: Promise<
+      { proposal: { learnRequestId: string } }[]
+    > = closedIds.length
+      ? this.prisma.proposalSession.findMany({
+          where: {
+            status: ProposalSessionStatus.PENDING_SCHEDULE,
+            proposal: { learnRequestId: { in: closedIds } },
+          },
+          select: { proposal: { select: { learnRequestId: true } } },
+        })
+      : Promise.resolve([]);
+
+    const [pendingProposals, pendingSessions] = await Promise.all([
+      pendingProposalsPromise,
+      pendingSessionsPromise,
+    ]);
+
+    const actionNeededIds = new Set([
+      ...pendingProposals.map((proposal) => proposal.learnRequestId),
+      ...pendingSessions.map((session) => session.proposal.learnRequestId),
+    ]);
+
+    return items.map((item) => ({
+      ...item,
+      actionNeeded: actionNeededIds.has(item.id),
+    }));
+  }
 
   private async diffSkills(
     tx: Prisma.TransactionClient,
