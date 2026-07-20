@@ -1,6 +1,7 @@
 import {
   LearnRequestStatus,
   LearnRequestType,
+  ProficiencyLevel,
   ProposalSessionStatus,
   ProposalStatus,
   UserRole,
@@ -90,6 +91,31 @@ describe('LearnRequestsService.findMany', () => {
     expect(where.AND[1]).not.toHaveProperty('status');
   });
 
+  it('never applies a TUTOR-supplied status filter even when combined with level/budget filters, so a TUTOR still only receives OPEN results', async () => {
+    prisma.learnRequest.findMany.mockResolvedValue([
+      learnRequest({ id: 'lr-open', status: LearnRequestStatus.OPEN }),
+    ]);
+
+    await service.findMany(
+      user({ role: UserRole.TUTOR }),
+      query({
+        status: [LearnRequestStatus.DRAFT],
+        level: [ProficiencyLevel.BEGINNER],
+        budgetMin: 20,
+        budgetMax: 40,
+      }),
+    );
+
+    const { where } = lastFindManyArgs();
+    expect(where.AND[0]).toEqual({ status: LearnRequestStatus.OPEN });
+    expect(where.AND[1]).not.toHaveProperty('status');
+    expect(where.AND[1]).toMatchObject({
+      level: { in: [ProficiencyLevel.BEGINNER] },
+      budgetMax: { gte: 20 },
+      budgetMin: { lte: 40 },
+    });
+  });
+
   it('scopes a LEARNER to their own requests across every status, with no learnerId accepted from the query', async () => {
     await service.findMany(
       user({ id: 'learner-1', role: UserRole.LEARNER }),
@@ -133,7 +159,7 @@ describe('LearnRequestsService.findMany', () => {
       query({
         status: [LearnRequestStatus.CLOSED],
         categoryId: 'cat-1',
-        type: LearnRequestType.COURSE,
+        type: [LearnRequestType.COURSE],
       }),
     );
 
@@ -142,7 +168,91 @@ describe('LearnRequestsService.findMany', () => {
     expect(where.AND[1]).toMatchObject({
       status: { in: [LearnRequestStatus.CLOSED] },
       categoryId: 'cat-1',
-      type: LearnRequestType.COURSE,
+      type: { in: [LearnRequestType.COURSE] },
+    });
+  });
+
+  it('filters by one or more types at once', async () => {
+    await service.findMany(
+      user({ role: UserRole.ADMIN }),
+      query({ type: [LearnRequestType.ONE_TIME, LearnRequestType.COURSE] }),
+    );
+
+    const { where } = lastFindManyArgs();
+    expect(where.AND[1]).toMatchObject({
+      type: { in: [LearnRequestType.ONE_TIME, LearnRequestType.COURSE] },
+    });
+  });
+
+  it('filters by one or more levels at once', async () => {
+    await service.findMany(
+      user({ role: UserRole.ADMIN }),
+      query({
+        level: [ProficiencyLevel.ADVANCED, ProficiencyLevel.INTERMEDIATE],
+      }),
+    );
+
+    const { where } = lastFindManyArgs();
+    expect(where.AND[1]).toMatchObject({
+      level: { in: [ProficiencyLevel.ADVANCED, ProficiencyLevel.INTERMEDIATE] },
+    });
+  });
+
+  it('filters preferred languages by overlap: a request matches if it lists any selected language', async () => {
+    await service.findMany(
+      user({ role: UserRole.ADMIN }),
+      query({ preferredLanguages: ['english', 'spanish'] }),
+    );
+
+    const { where } = lastFindManyArgs();
+    expect(where.AND[1]).toMatchObject({
+      preferredLanguages: { hasSome: ['english', 'spanish'] },
+    });
+  });
+
+  it('filters by one or more requested weekly frequencies', async () => {
+    await service.findMany(
+      user({ role: UserRole.ADMIN }),
+      query({ requestedFrequency: [2, 3] }),
+    );
+
+    const { where } = lastFindManyArgs();
+    expect(where.AND[1]).toMatchObject({
+      requestedFrequency: { in: [2, 3] },
+    });
+  });
+
+  it('combines category, level and type filters as a logical AND, not OR', async () => {
+    await service.findMany(
+      user({ role: UserRole.ADMIN }),
+      query({
+        categoryId: 'cat-1',
+        level: [ProficiencyLevel.BEGINNER],
+        type: [LearnRequestType.COURSE],
+      }),
+    );
+
+    const { where } = lastFindManyArgs();
+    expect(where.AND[1]).toMatchObject({
+      categoryId: 'cat-1',
+      level: { in: [ProficiencyLevel.BEGINNER] },
+      type: { in: [LearnRequestType.COURSE] },
+    });
+  });
+
+  it('filters budget by overlap, not containment: a 15-50 request matches a 20-40 filter', async () => {
+    await service.findMany(
+      user({ role: UserRole.ADMIN }),
+      query({ budgetMin: 20, budgetMax: 40 }),
+    );
+
+    const { where } = lastFindManyArgs();
+    // budgetMin=20 excludes requests whose own budgetMax < 20;
+    // budgetMax=40 excludes requests whose own budgetMin > 40.
+    // A request posted as 15-50 satisfies both (budgetMax=50 >= 20, budgetMin=15 <= 40).
+    expect(where.AND[1]).toMatchObject({
+      budgetMax: { gte: 20 },
+      budgetMin: { lte: 40 },
     });
   });
 
