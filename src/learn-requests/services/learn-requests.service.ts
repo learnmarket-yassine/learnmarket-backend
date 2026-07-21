@@ -7,8 +7,8 @@ import {
   LearnRequest,
   LearnRequestStatus,
   Prisma,
-  ProposalSessionStatus,
   ProposalStatus,
+  SessionStatus,
   UserRole,
 } from '@prisma/client';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
@@ -93,7 +93,7 @@ export class LearnRequestsService {
           proposals: {
             some: {
               sessions: {
-                some: { status: ProposalSessionStatus.PENDING_SCHEDULE },
+                some: { status: SessionStatus.PENDING_SCHEDULE },
               },
             },
           },
@@ -238,9 +238,9 @@ export class LearnRequestsService {
     const pendingSessionsPromise: Promise<
       { proposal: { learnRequestId: string } }[]
     > = closedIds.length
-      ? this.prisma.proposalSession.findMany({
+      ? this.prisma.session.findMany({
           where: {
-            status: ProposalSessionStatus.PENDING_SCHEDULE,
+            status: SessionStatus.PENDING_SCHEDULE,
             proposal: { learnRequestId: { in: closedIds } },
           },
           select: { proposal: { select: { learnRequestId: true } } },

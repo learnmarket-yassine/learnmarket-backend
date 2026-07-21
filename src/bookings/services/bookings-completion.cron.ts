@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { LearnRequestType } from '@prisma/client';
+import { LearnRequestType, SessionStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
@@ -14,7 +14,7 @@ export class BookingsCompletionCron {
     const dueBookings = await this.prisma.booking.findMany({
       where: { status: 'CONFIRMED', endTime: { lt: new Date() } },
       include: {
-        proposalSession: {
+        session: {
           include: { proposal: { include: { learnRequest: true } } },
         },
       },
@@ -27,33 +27,36 @@ export class BookingsCompletionCron {
           data: { status: 'COMPLETED' },
         });
 
-        if (!booking.proposalSession) return;
+        if (!booking.session) return;
 
-        await tx.proposalSession.update({
-          where: { id: booking.proposalSession.id },
-          data: { status: 'COMPLETED' },
+        await tx.session.update({
+          where: { id: booking.session.id },
+          data: { status: SessionStatus.COMPLETED },
         });
 
-        const { proposal } = booking.proposalSession;
-        if (booking.proposalSession.sessionNumber === proposal.totalSessions) {
+        const { proposal } = booking.session;
+
+        const nextSession = await tx.session.findFirst({
+          where: {
+            proposalId: proposal.id,
+            sessionNumber: { gt: booking.session.sessionNumber },
+          },
+          orderBy: { sessionNumber: 'asc' },
+        });
+
+        if (!nextSession) {
           await tx.learnRequest.update({
             where: { id: proposal.learnRequest.id },
             data: { status: 'COMPLETED' },
           });
-        } else if (proposal.learnRequest.type === LearnRequestType.COURSE) {
-          const next = await tx.proposalSession.findFirst({
-            where: {
-              proposalId: proposal.id,
-              sessionNumber: booking.proposalSession.sessionNumber + 1,
-              status: 'LOCKED',
-            },
+        } else if (
+          proposal.learnRequest.type === LearnRequestType.COURSE &&
+          nextSession.status === SessionStatus.LOCKED
+        ) {
+          await tx.session.update({
+            where: { id: nextSession.id },
+            data: { status: SessionStatus.PENDING_SCHEDULE },
           });
-          if (next) {
-            await tx.proposalSession.update({
-              where: { id: next.id },
-              data: { status: 'PENDING_SCHEDULE' },
-            });
-          }
         }
 
         // TODO: notifications hook — notify tutor/learner that the session completed

@@ -8,9 +8,10 @@ import {
 import {
   LearnRequestStatus,
   LearnRequestType,
+  PayoutMethod,
   Proposal,
-  ProposalSessionStatus,
   ProposalStatus,
+  SessionStatus,
   UserRole,
 } from '@prisma/client';
 import { AuthUser } from '../../common/decorators/current-user.decorator';
@@ -18,7 +19,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CreateProposalDto } from '../dto/create-proposal.dto';
 import { UpdateProposalDto } from '../dto/update-proposal.dto';
 
-const PROPOSAL_INCLUDE = { sessions: true } as const;
+const PROPOSAL_INCLUDE = { sessionPlans: true, sessions: true } as const;
 
 @Injectable()
 export class ProposalsService {
@@ -37,49 +38,61 @@ export class ProposalsService {
       throw new ConflictException('Learn request is not open for proposals');
     }
 
-    let totalSessions: number;
-    let lessons: { title: string; objective?: string }[];
-
-    if (learnRequest.type === LearnRequestType.COURSE) {
-      if (!dto.lessons || dto.lessons.length !== dto.totalSessions) {
-        throw new BadRequestException(
-          `COURSE proposals require exactly totalSessions (${dto.totalSessions}) lesson entries`,
-        );
-      }
-      totalSessions = dto.totalSessions;
-      lessons = dto.lessons;
-    } else {
-      totalSessions = 1;
-      lessons = [
-        {
-          title: dto.lessons?.[0]?.title ?? 'Session',
-          objective: dto.lessons?.[0]?.objective,
-        },
-      ];
+    if (
+      learnRequest.type === LearnRequestType.ONE_TIME &&
+      dto.sessionPlans.length !== 1
+    ) {
+      throw new BadRequestException(
+        'ONE_TIME proposals require exactly one session plan entry',
+      );
     }
+    if (
+      learnRequest.type === LearnRequestType.COURSE &&
+      dto.sessionPlans.length < 1
+    ) {
+      throw new BadRequestException(
+        'COURSE proposals require at least one session plan entry',
+      );
+    }
+
+    const existing = await this.prisma.proposal.findFirst({
+      where: {
+        learnRequestId,
+        tutorId,
+        status: { in: [ProposalStatus.PENDING, ProposalStatus.ACCEPTED] },
+      },
+    });
+    if (existing) {
+      throw new ConflictException(
+        'You already have a pending or accepted proposal on this learn request',
+      );
+    }
+
+    // A single-session proposal is paid out only once it's done — there is
+    // no meaningful "per session" split when there's only one session.
+    const payoutMethod =
+      dto.sessionPlans.length === 1
+        ? PayoutMethod.ON_COMPLETION
+        : (dto.payoutMethod ?? PayoutMethod.ON_COMPLETION);
 
     return this.prisma.$transaction(async (tx) => {
       const proposal = await tx.proposal.create({
         data: {
           learnRequestId,
           tutorId,
-          totalSessions,
           sessionDurationMinutes: dto.sessionDurationMinutes,
           totalPrice: dto.totalPrice,
+          payoutMethod,
           message: dto.message,
         },
       });
 
       await tx.proposalSession.createMany({
-        data: lessons.map((lesson, index) => ({
+        data: dto.sessionPlans.map((plan) => ({
           proposalId: proposal.id,
-          sessionNumber: index + 1,
-          title: lesson.title,
-          objective: lesson.objective,
-          status:
-            index === 0
-              ? ProposalSessionStatus.PENDING_SCHEDULE
-              : ProposalSessionStatus.LOCKED,
+          sessionNumber: plan.sessionNumber,
+          title: plan.title,
+          objective: plan.objective,
         })),
       });
 
@@ -147,16 +160,50 @@ export class ProposalsService {
     if (proposal.status !== ProposalStatus.PENDING) {
       throw new ConflictException('Proposal is not pending');
     }
+    if (proposal.learnRequest.status !== LearnRequestStatus.OPEN) {
+      throw new ConflictException('Learn request is not open');
+    }
 
     return this.prisma.$transaction(async (tx) => {
+      await tx.proposal.update({
+        where: { id: proposalId },
+        data: { status: ProposalStatus.ACCEPTED },
+      });
+
       await tx.learnRequest.update({
         where: { id: proposal.learnRequestId },
         data: { status: LearnRequestStatus.CLOSED },
       });
 
-      return tx.proposal.update({
+      await tx.proposal.updateMany({
+        where: {
+          learnRequestId: proposal.learnRequestId,
+          id: { not: proposalId },
+          status: ProposalStatus.PENDING,
+        },
+        data: { status: ProposalStatus.DECLINED },
+      });
+
+      const plans = await tx.proposalSession.findMany({
+        where: { proposalId },
+        orderBy: { sessionNumber: 'asc' },
+      });
+
+      await tx.session.createMany({
+        data: plans.map((plan) => ({
+          proposalId,
+          sessionNumber: plan.sessionNumber,
+          title: plan.title,
+          objective: plan.objective,
+          status:
+            plan.sessionNumber === 1
+              ? SessionStatus.PENDING_SCHEDULE
+              : SessionStatus.LOCKED,
+        })),
+      });
+
+      return tx.proposal.findUniqueOrThrow({
         where: { id: proposalId },
-        data: { status: ProposalStatus.ACCEPTED },
         include: PROPOSAL_INCLUDE,
       });
     });

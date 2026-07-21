@@ -504,32 +504,58 @@ enum ProposalStatus {
   @@map("proposal_status")
 }
 
+enum PayoutMethod {
+  PER_SESSION
+  ON_COMPLETION
+
+  @@map("payout_method")
+}
+
 model Proposal {
   id             String @id @default(uuid())
   learnRequestId String @map("learn_request_id")
   tutorId        String @map("tutor_id")
 
   status                 ProposalStatus @default(PENDING)
-  totalSessions          Int            @map("total_sessions")
   sessionDurationMinutes Int            @map("session_duration_minutes")
   totalPrice             Decimal        @map("total_price") @db.Decimal(10, 2)
+  payoutMethod           PayoutMethod   @default(ON_COMPLETION) @map("payout_method")
 
   message String? @db.Text
+
+  learnerViewedAt DateTime? @map("viewed_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  learnRequest LearnRequest      @relation(fields: [learnRequestId], references: [id], onDelete: Cascade)
+  tutor        User              @relation("TutorProposals", fields: [tutorId], references: [id], onDelete: Cascade)
+  sessionPlans ProposalSession[] // the pitch -- exists only while PENDING
+  sessions     Session[] // the real thing -- exists only once ACCEPTED
+
+  @@index([tutorId])
+  @@index([status])
+  @@index([learnRequestId, status])
+  @@map("proposals")
+}
+
+model ProposalSession {
+  id            String  @id @default(uuid())
+  proposalId    String  @map("proposal_id")
+  sessionNumber Int     @map("session_number")
+  title         String
+  objective     String? @db.Text
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  learnRequest LearnRequest      @relation(fields: [learnRequestId], references: [id], onDelete: Cascade)
-  tutor        User              @relation("TutorProposals", fields: [tutorId], references: [id], onDelete: Cascade)
-  sessions     ProposalSession[]
+  proposal Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
 
-  @@index([learnRequestId])
-  @@index([tutorId])
-  @@index([status])
-  @@map("proposals")
+  @@unique([proposalId, sessionNumber])
+  @@index([proposalId])
+  @@map("proposal_sessions")
 }
 
-enum ProposalSessionStatus {
+enum SessionStatus {
   LOCKED // previous session not yet completed — cannot be scheduled
   PENDING_SCHEDULE // unlocked, learner can pick a time
   HELD // has an ACTIVE SlotHold
@@ -537,16 +563,16 @@ enum ProposalSessionStatus {
   COMPLETED // session happened (mirrors Booking.status = COMPLETED)
   CANCELLED
 
-  @@map("proposal_session_status")
+  @@map("session_status")
 }
 
-model ProposalSession {
-  id            String                @id @default(uuid())
-  proposalId    String                @map("proposal_id")
-  sessionNumber Int                   @map("session_number")
+model Session {
+  id            String        @id @default(uuid())
+  proposalId    String        @map("proposal_id")
+  sessionNumber Int           @map("session_number")
   title         String
-  objective     String?               @db.Text
-  status        ProposalSessionStatus @default(LOCKED)
+  objective     String?       @db.Text
+  status        SessionStatus @default(LOCKED)
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -558,7 +584,7 @@ model ProposalSession {
   @@unique([proposalId, sessionNumber])
   @@index([proposalId])
   @@index([proposalId, status])
-  @@map("proposal_sessions")
+  @@map("sessions")
 }
 
 enum HoldStatus {
@@ -570,20 +596,20 @@ enum HoldStatus {
 }
 
 model SlotHold {
-  id                String     @id @default(uuid())
-  tutorId           String     @map("tutor_id")
-  learnerId         String     @map("learner_id")
-  proposalSessionId String     @unique @map("proposal_session_id")
-  startTime         DateTime   @map("start_time") @db.Timestamptz(3)
-  endTime           DateTime   @map("end_time") @db.Timestamptz(3)
-  status            HoldStatus @default(ACTIVE)
-  expiresAt         DateTime   @map("expires_at") @db.Timestamptz(3)
-  createdAt         DateTime   @default(now()) @map("created_at")
+  id        String     @id @default(uuid())
+  tutorId   String     @map("tutor_id")
+  learnerId String     @map("learner_id")
+  sessionId String     @unique @map("session_id")
+  startTime DateTime   @map("start_time") @db.Timestamptz(3)
+  endTime   DateTime   @map("end_time") @db.Timestamptz(3)
+  status    HoldStatus @default(ACTIVE)
+  expiresAt DateTime   @map("expires_at") @db.Timestamptz(3)
+  createdAt DateTime   @default(now()) @map("created_at")
 
-  tutor           User            @relation("TutorSlotHolds", fields: [tutorId], references: [id], onDelete: Cascade)
-  learner         User            @relation("LearnerSlotHolds", fields: [learnerId], references: [id], onDelete: Cascade)
-  proposalSession ProposalSession @relation(fields: [proposalSessionId], references: [id], onDelete: Cascade)
-  booking         Booking?
+  tutor   User     @relation("TutorSlotHolds", fields: [tutorId], references: [id], onDelete: Cascade)
+  learner User     @relation("LearnerSlotHolds", fields: [learnerId], references: [id], onDelete: Cascade)
+  session Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  booking Booking?
 
   @@index([tutorId, startTime, endTime])
   @@index([learnerId])
@@ -600,22 +626,22 @@ enum BookingStatus {
 }
 
 model Booking {
-  id                String        @id @default(uuid())
-  tutorId           String        @map("tutor_id")
-  learnerId         String        @map("learner_id")
-  proposalSessionId String?       @unique @map("proposal_session_id")
-  slotHoldId        String?       @unique @map("slot_hold_id")
-  startTime         DateTime      @map("start_time") @db.Timestamptz(3)
-  endTime           DateTime      @map("end_time") @db.Timestamptz(3)
-  status            BookingStatus @default(CONFIRMED)
+  id         String        @id @default(uuid())
+  tutorId    String        @map("tutor_id")
+  learnerId  String        @map("learner_id")
+  sessionId  String?       @unique @map("session_id")
+  slotHoldId String?       @unique @map("slot_hold_id")
+  startTime  DateTime      @map("start_time") @db.Timestamptz(3)
+  endTime    DateTime      @map("end_time") @db.Timestamptz(3)
+  status     BookingStatus @default(CONFIRMED)
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  tutor           User             @relation("TutorBookings", fields: [tutorId], references: [id], onDelete: Cascade)
-  learner         User             @relation("LearnerBookings", fields: [learnerId], references: [id], onDelete: Cascade)
-  proposalSession ProposalSession? @relation(fields: [proposalSessionId], references: [id], onDelete: SetNull)
-  slotHold        SlotHold?        @relation(fields: [slotHoldId], references: [id], onDelete: SetNull)
+  tutor    User      @relation("TutorBookings", fields: [tutorId], references: [id], onDelete: Cascade)
+  learner  User      @relation("LearnerBookings", fields: [learnerId], references: [id], onDelete: Cascade)
+  session  Session?  @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  slotHold SlotHold? @relation(fields: [slotHoldId], references: [id], onDelete: SetNull)
 
   @@index([tutorId, startTime, endTime])
   @@index([learnerId])

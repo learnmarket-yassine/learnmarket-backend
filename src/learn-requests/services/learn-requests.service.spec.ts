@@ -2,8 +2,8 @@ import {
   LearnRequestStatus,
   LearnRequestType,
   ProficiencyLevel,
-  ProposalSessionStatus,
   ProposalStatus,
+  SessionStatus,
   UserRole,
 } from '@prisma/client';
 import { LearnRequestsService } from './learn-requests.service';
@@ -47,7 +47,7 @@ describe('LearnRequestsService.findMany', () => {
   let prisma: {
     learnRequest: { findMany: jest.Mock; count: jest.Mock };
     proposal: { findMany: jest.Mock };
-    proposalSession: { findMany: jest.Mock };
+    session: { findMany: jest.Mock };
     $transaction: jest.Mock;
   };
   let service: LearnRequestsService;
@@ -64,7 +64,7 @@ describe('LearnRequestsService.findMany', () => {
         count: jest.fn().mockResolvedValue(0),
       },
       proposal: { findMany: jest.fn().mockResolvedValue([]) },
-      proposalSession: { findMany: jest.fn().mockResolvedValue([]) },
+      session: { findMany: jest.fn().mockResolvedValue([]) },
       $transaction: jest.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
     };
 
@@ -271,7 +271,7 @@ describe('LearnRequestsService.findMany', () => {
           proposals: {
             some: {
               sessions: {
-                some: { status: ProposalSessionStatus.PENDING_SCHEDULE },
+                some: { status: SessionStatus.PENDING_SCHEDULE },
               },
             },
           },
@@ -315,13 +315,13 @@ describe('LearnRequestsService.findMany', () => {
     prisma.learnRequest.findMany.mockResolvedValue([
       learnRequest({ id: 'lr-closed', status: LearnRequestStatus.CLOSED }),
     ]);
-    prisma.proposalSession.findMany.mockResolvedValue([
+    prisma.session.findMany.mockResolvedValue([
       { proposal: { learnRequestId: 'lr-closed' } },
     ]);
 
     const { paginatedResult } = await service.findMany(user(), query());
 
-    const sessionCalls = prisma.proposalSession.findMany.mock.calls as [
+    const sessionCalls = prisma.session.findMany.mock.calls as [
       {
         where: {
           status: string;
@@ -331,7 +331,7 @@ describe('LearnRequestsService.findMany', () => {
     ][];
     const sessionCall = sessionCalls[0][0];
     expect(sessionCall.where).toMatchObject({
-      status: ProposalSessionStatus.PENDING_SCHEDULE,
+      status: SessionStatus.PENDING_SCHEDULE,
       proposal: { learnRequestId: { in: ['lr-closed'] } },
     });
     expect(paginatedResult[0].actionNeeded).toBe(true);

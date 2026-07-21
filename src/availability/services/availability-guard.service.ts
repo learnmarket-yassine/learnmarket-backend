@@ -35,7 +35,7 @@ export class AvailabilityGuardService {
         id: true,
         startTime: true,
         endTime: true,
-        proposalSessionId: true,
+        sessionId: true,
       },
     });
     if (!bookings.length) return;
@@ -89,7 +89,7 @@ export class AvailabilityGuardService {
         id: true,
         startTime: true,
         endTime: true,
-        proposalSessionId: true,
+        sessionId: true,
       },
     });
 
@@ -101,7 +101,7 @@ export class AvailabilityGuardService {
       id: string;
       startTime: Date;
       endTime: Date;
-      proposalSessionId: string | null;
+      sessionId: string | null;
     }[],
   ): void {
     if (!affected.length) return;
@@ -110,7 +110,7 @@ export class AvailabilityGuardService {
         'This change would remove availability covering one or more confirmed sessions',
       affectedSessions: affected.map((b) => ({
         bookingId: b.id,
-        proposalSessionId: b.proposalSessionId,
+        sessionId: b.sessionId,
         startTime: b.startTime,
         endTime: b.endTime,
       })),
