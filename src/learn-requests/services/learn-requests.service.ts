@@ -60,7 +60,7 @@ export class LearnRequestsService {
 
     const narrowingWhere: Prisma.LearnRequestWhereInput = {};
     if (query.categoryId) narrowingWhere.categoryId = query.categoryId;
-    if (query.type) narrowingWhere.type = query.type;
+    if (query.type?.length) narrowingWhere.type = { in: query.type };
     if (query.search) {
       narrowingWhere.title = { contains: query.search, mode: 'insensitive' };
     }
@@ -68,6 +68,19 @@ export class LearnRequestsService {
     // there is no code path where it can widen past OPEN.
     if (query.status?.length && user.role !== UserRole.TUTOR) {
       narrowingWhere.status = { in: query.status };
+    }
+    if (query.level?.length) narrowingWhere.level = { in: query.level };
+    if (query.budgetMin !== undefined) {
+      narrowingWhere.budgetMax = { gte: query.budgetMin };
+    }
+    if (query.budgetMax !== undefined) {
+      narrowingWhere.budgetMin = { lte: query.budgetMax };
+    }
+    if (query.preferredLanguages?.length) {
+      narrowingWhere.preferredLanguages = { hasSome: query.preferredLanguages };
+    }
+    if (query.requestedFrequency?.length) {
+      narrowingWhere.requestedFrequency = { in: query.requestedFrequency };
     }
     if (query.actionNeeded) {
       narrowingWhere.OR = [
