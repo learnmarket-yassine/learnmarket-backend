@@ -19,42 +19,50 @@ import { SkillsService } from '../../skills/skills.service';
 import { CreateLearnRequestDraftDto } from '../dto/create-draft.dto';
 import { UpdateLearnRequestDto } from '../dto/update-learn-request.dto';
 import { GetLearnRequestsQueryDto } from '../dto/list-learn-requests-query.dto';
+import { GetProposalsForRequestQueryDto } from '../dto/get-proposals-for-request-query.dto';
 import { LearnRequestValidationService } from './learn-request-validation.service';
 
-function buildDetailInclude(user: Pick<AuthUser, 'id' | 'role'>) {
+const PROPOSAL_INCLUDE = {
+  sessionPlans: { orderBy: { sessionNumber: 'asc' } },
+  tutor: {
+    select: {
+      id: true,
+      firstname: true,
+      lastname: true,
+      avatar: true,
+      headline: true,
+      country: true,
+      tutorProfile: {
+        select: {
+          hourlyRate: true,
+          skills: { include: { skill: true } },
+        },
+      },
+    },
+  },
+} satisfies Prisma.ProposalInclude;
+
+function buildListInclude(user: Pick<AuthUser, 'id' | 'role'>) {
   return {
     category: true,
     skills: { include: { skill: true } },
     proposals: {
-      // TUTOR: the outer query already restricts requests to OPEN ones
-      // (or, for the LEARNER-owned mutation endpoints, the caller is
-      // always the owning LEARNER) -- this nested filter narrows the
-      // proposals shown on each request down to the tutor's own. For
-      // LEARNER/ADMIN, no filter: ownership for LEARNER is already
-      // guaranteed by the outer where restricting every returned row to
-      // learnerId === user.id, so no separate ownership check is needed
-      // at this nested level.
       where: user.role === UserRole.TUTOR ? { tutorId: user.id } : undefined,
       orderBy: { createdAt: 'desc' },
-      include: {
-        sessionPlans: { orderBy: { sessionNumber: 'asc' } },
-        tutor: {
-          select: {
-            id: true,
-            firstname: true,
-            lastname: true,
-            avatar: true,
-            headline: true,
-            tutorProfile: { select: { hourlyRate: true } },
-          },
-        },
-      },
+      include: PROPOSAL_INCLUDE,
     },
   } satisfies Prisma.LearnRequestInclude;
 }
 
+function buildDetailInclude() {
+  return {
+    category: true,
+    skills: { include: { skill: true } },
+  } satisfies Prisma.LearnRequestInclude;
+}
+
 type LearnRequestWithRelations = Prisma.LearnRequestGetPayload<{
-  include: ReturnType<typeof buildDetailInclude>;
+  include: ReturnType<typeof buildListInclude>;
 }>;
 
 @Injectable()
@@ -73,7 +81,7 @@ export class LearnRequestsService {
         type: dto.type,
         title: dto.title,
       },
-      include: buildDetailInclude({ id: learnerId, role: UserRole.LEARNER }),
+      include: buildDetailInclude(),
     });
   }
 
@@ -91,8 +99,6 @@ export class LearnRequestsService {
     if (query.search) {
       narrowingWhere.title = { contains: query.search, mode: 'insensitive' };
     }
-    // A TUTOR's status param is silently dropped -- never applied, so
-    // there is no code path where it can widen past OPEN.
     if (query.status?.length && user.role !== UserRole.TUTOR) {
       narrowingWhere.status = { in: query.status };
     }
@@ -136,7 +142,7 @@ export class LearnRequestsService {
         skip: query.page * query.take,
         take: query.take,
         orderBy: { createdAt: 'desc' },
-        include: buildDetailInclude(user),
+        include: buildListInclude(user),
       }),
       this.prisma.learnRequest.count({ where }),
     ]);
@@ -150,7 +156,7 @@ export class LearnRequestsService {
   async findOneDetail(viewer: AuthUser, id: string) {
     const learnRequest = await this.prisma.learnRequest.findUnique({
       where: { id },
-      include: buildDetailInclude(viewer),
+      include: buildDetailInclude(),
     });
     if (!learnRequest) throw new NotFoundException('Learn request not found');
 
@@ -164,6 +170,50 @@ export class LearnRequestsService {
       throw new NotFoundException('Learn request not found');
     }
     return learnRequest;
+  }
+
+  async findProposalsForRequest(
+    user: AuthUser,
+    learnRequestId: string,
+    query: GetProposalsForRequestQueryDto,
+  ) {
+    const learnRequestWhere: Prisma.LearnRequestWhereInput =
+      user.role === UserRole.ADMIN
+        ? {}
+        : user.role === UserRole.TUTOR
+          ? { status: LearnRequestStatus.OPEN }
+          : { learnerId: user.id };
+
+    const learnRequest = await this.prisma.learnRequest.findFirst({
+      where: { id: learnRequestId, ...learnRequestWhere },
+    });
+    if (!learnRequest) throw new NotFoundException('Learn request not found');
+
+    const proposalWhere: Prisma.ProposalWhereInput = { learnRequestId };
+    if (user.role === UserRole.TUTOR) proposalWhere.tutorId = user.id;
+    if (query.search) {
+      proposalWhere.OR = [
+        {
+          tutor: { firstname: { contains: query.search, mode: 'insensitive' } },
+        },
+        {
+          tutor: { lastname: { contains: query.search, mode: 'insensitive' } },
+        },
+      ];
+    }
+
+    const [items, totalCount] = await this.prisma.$transaction([
+      this.prisma.proposal.findMany({
+        where: proposalWhere,
+        skip: query.page * query.take,
+        take: query.take,
+        orderBy: { createdAt: 'desc' },
+        include: PROPOSAL_INCLUDE,
+      }),
+      this.prisma.proposal.count({ where: proposalWhere }),
+    ]);
+
+    return { paginatedResult: items, totalCount };
   }
 
   async update(learnerId: string, id: string, dto: UpdateLearnRequestDto) {
@@ -190,7 +240,7 @@ export class LearnRequestsService {
       return tx.learnRequest.update({
         where: { id },
         data: rest,
-        include: buildDetailInclude({ id: learnerId, role: UserRole.LEARNER }),
+        include: buildDetailInclude(),
       });
     });
   }
@@ -205,14 +255,14 @@ export class LearnRequestsService {
 
     const detailed = await this.prisma.learnRequest.findUniqueOrThrow({
       where: { id },
-      include: buildDetailInclude({ id: learnerId, role: UserRole.LEARNER }),
+      include: buildDetailInclude(),
     });
     this.validation.assertPublishable(detailed);
 
     return this.prisma.learnRequest.update({
       where: { id },
       data: { status: LearnRequestStatus.OPEN },
-      include: buildDetailInclude({ id: learnerId, role: UserRole.LEARNER }),
+      include: buildDetailInclude(),
     });
   }
 
@@ -224,7 +274,7 @@ export class LearnRequestsService {
     return this.prisma.learnRequest.update({
       where: { id },
       data: { status: LearnRequestStatus.CANCELLED },
-      include: buildDetailInclude({ id: learnerId, role: UserRole.LEARNER }),
+      include: buildDetailInclude(),
     });
   }
 
