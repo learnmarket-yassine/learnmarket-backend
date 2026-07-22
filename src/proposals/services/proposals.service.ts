@@ -88,9 +88,9 @@ export class ProposalsService {
       });
 
       await tx.proposalSession.createMany({
-        data: dto.sessionPlans.map((plan) => ({
+        data: dto.sessionPlans.map((plan, index) => ({
           proposalId: proposal.id,
-          sessionNumber: plan.sessionNumber,
+          sessionNumber: index + 1,
           title: plan.title,
           objective: plan.objective,
         })),
@@ -133,10 +133,49 @@ export class ProposalsService {
     if (proposal.status !== ProposalStatus.PENDING) {
       throw new ConflictException('Only pending proposals can be edited');
     }
-    return this.prisma.proposal.update({
-      where: { id },
-      data: dto,
-      include: PROPOSAL_INCLUDE,
+
+    const { sessionPlans } = dto;
+    if (!sessionPlans) {
+      return this.prisma.proposal.update({
+        where: { id },
+        data: { message: dto.message },
+        include: PROPOSAL_INCLUDE,
+      });
+    }
+
+    const learnRequest = await this.prisma.learnRequest.findUniqueOrThrow({
+      where: { id: proposal.learnRequestId },
+    });
+    if (
+      learnRequest.type === LearnRequestType.ONE_TIME &&
+      sessionPlans.length !== 1
+    ) {
+      throw new BadRequestException(
+        'ONE_TIME proposals require exactly one session plan entry',
+      );
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      if (dto.message !== undefined) {
+        await tx.proposal.update({
+          where: { id },
+          data: { message: dto.message },
+        });
+      }
+      await tx.proposalSession.deleteMany({ where: { proposalId: id } });
+      await tx.proposalSession.createMany({
+        data: sessionPlans.map((plan, index) => ({
+          proposalId: id,
+          sessionNumber: index + 1,
+          title: plan.title,
+          objective: plan.objective,
+        })),
+      });
+
+      return tx.proposal.findUniqueOrThrow({
+        where: { id },
+        include: PROPOSAL_INCLUDE,
+      });
     });
   }
 

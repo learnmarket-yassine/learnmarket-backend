@@ -70,7 +70,7 @@ describe('ProposalsService.create eligibility guard (integration, real DB)', () 
     return {
       sessionDurationMinutes: 60,
       totalPrice: 50,
-      sessionPlans: [{ sessionNumber: 1, title: 'Session 1' }],
+      sessionPlans: [{ title: 'Session 1' }],
       ...overrides,
     };
   }
@@ -135,10 +135,7 @@ describe('ProposalsService.create eligibility guard (integration, real DB)', () 
         tutorId,
         learnRequest.id,
         dto({
-          sessionPlans: [
-            { sessionNumber: 1, title: 'Session 1' },
-            { sessionNumber: 2, title: 'Session 2' },
-          ],
+          sessionPlans: [{ title: 'Session 1' }, { title: 'Session 2' }],
         }),
       ),
     ).rejects.toBeInstanceOf(BadRequestException);

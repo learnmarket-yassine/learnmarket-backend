@@ -97,9 +97,9 @@ describe('ProposalsService.accept (integration, real DB)', () => {
       sessionDurationMinutes: 60,
       totalPrice: 150,
       sessionPlans: [
-        { sessionNumber: 1, title: 'Session 1' },
-        { sessionNumber: 2, title: 'Session 2' },
-        { sessionNumber: 3, title: 'Session 3' },
+        { title: 'Session 1' },
+        { title: 'Session 2' },
+        { title: 'Session 3' },
       ],
     });
   }

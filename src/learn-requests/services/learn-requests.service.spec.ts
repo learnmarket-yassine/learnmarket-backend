@@ -14,6 +14,7 @@ type FindManyArgs = {
   where: { AND: [Record<string, unknown>, Record<string, unknown>] };
   skip: number;
   take: number;
+  include: { proposals: { where?: { tutorId: string } } };
 };
 
 function learnRequest(overrides: Record<string, unknown> = {}) {
@@ -335,6 +336,33 @@ describe('LearnRequestsService.findMany', () => {
       proposal: { learnRequestId: { in: ['lr-closed'] } },
     });
     expect(paginatedResult[0].actionNeeded).toBe(true);
+  });
+
+  it("scopes nested proposals to the TUTOR's own tutorId, never another tutor's", async () => {
+    await service.findMany(
+      user({ id: 'tutor-1', role: UserRole.TUTOR }),
+      query(),
+    );
+
+    const { include } = lastFindManyArgs();
+    expect(include.proposals.where).toEqual({ tutorId: 'tutor-1' });
+  });
+
+  it('applies no proposals filter for a LEARNER, so every tutor proposal on their request is returned', async () => {
+    await service.findMany(
+      user({ id: 'learner-1', role: UserRole.LEARNER }),
+      query(),
+    );
+
+    const { include } = lastFindManyArgs();
+    expect(include.proposals.where).toBeUndefined();
+  });
+
+  it('applies no proposals filter for an ADMIN', async () => {
+    await service.findMany(user({ role: UserRole.ADMIN }), query());
+
+    const { include } = lastFindManyArgs();
+    expect(include.proposals.where).toBeUndefined();
   });
 
   it('marks actionNeeded false when neither trigger condition holds', async () => {

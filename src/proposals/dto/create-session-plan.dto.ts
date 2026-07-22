@@ -1,17 +1,6 @@
-import {
-  IsInt,
-  IsNotEmpty,
-  IsOptional,
-  IsPositive,
-  IsString,
-  MaxLength,
-} from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class CreateSessionPlanDto {
-  @IsInt()
-  @IsPositive()
-  sessionNumber!: number;
-
   @IsString()
   @IsNotEmpty()
   @MaxLength(200)
