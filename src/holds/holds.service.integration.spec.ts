@@ -12,6 +12,7 @@ describe('HoldsService (integration, real DB)', () => {
   let learnerId: string;
   let sessionAId: string;
   let sessionBId: string;
+  let proposalId: string;
 
   beforeAll(async () => {
     moduleRef = await Test.createTestingModule({
@@ -60,13 +61,13 @@ describe('HoldsService (integration, real DB)', () => {
       data: {
         learnRequestId: learnRequest.id,
         tutorId,
-        totalSessions: 2,
         sessionDurationMinutes: 60,
         totalPrice: 100,
       },
     });
+    proposalId = proposal.id;
     const [sessionA, sessionB] = await Promise.all([
-      prisma.proposalSession.create({
+      prisma.session.create({
         data: {
           proposalId: proposal.id,
           sessionNumber: 1,
@@ -74,7 +75,7 @@ describe('HoldsService (integration, real DB)', () => {
           status: 'PENDING_SCHEDULE',
         },
       }),
-      prisma.proposalSession.create({
+      prisma.session.create({
         data: {
           proposalId: proposal.id,
           sessionNumber: 2,
@@ -116,9 +117,7 @@ describe('HoldsService (integration, real DB)', () => {
 
     expect(fulfilled).toHaveLength(1);
     expect(rejected).toHaveLength(1);
-    expect((rejected[0] as PromiseRejectedResult).reason).toBeInstanceOf(
-      ConflictException,
-    );
+    expect(rejected[0].reason).toBeInstanceOf(ConflictException);
   });
 
   it('does not let a stale ACTIVE hold (expired but not yet cleaned up) block a new overlapping hold', async () => {
@@ -161,7 +160,7 @@ describe('HoldsService (integration, real DB)', () => {
     expect(staleHold.status).toBe('EXPIRED');
   });
 
-  it('reuses the same SlotHold row across create -> release -> create for the same proposalSession', async () => {
+  it('reuses the same SlotHold row across create -> release -> create for the same session', async () => {
     const startTime = new Date('2027-01-01T10:00:00.000Z');
     const endTime = new Date('2027-01-01T11:00:00.000Z');
 
@@ -189,8 +188,25 @@ describe('HoldsService (integration, real DB)', () => {
     expect(second.startTime.toISOString()).toBe(newStart.toISOString());
 
     const rowCount = await prisma.slotHold.count({
-      where: { proposalSessionId: sessionAId },
+      where: { sessionId: sessionAId },
     });
     expect(rowCount).toBe(1);
+  });
+
+  it('requestHold derives endTime from the proposal sessionDurationMinutes, not a fixed 60 minutes', async () => {
+    await prisma.proposal.update({
+      where: { id: proposalId },
+      data: { sessionDurationMinutes: 45 },
+    });
+
+    const startTime = new Date('2027-01-01T10:00:00.000Z');
+    const hold = await holds.requestHold(learnerId, {
+      sessionId: sessionAId,
+      startTime: startTime.toISOString(),
+    });
+
+    const expectedEnd = new Date(startTime.getTime() + 45 * 60_000);
+    expect(hold.endTime.toISOString()).toBe(expectedEnd.toISOString());
+    expect(hold.endTime.getTime() - hold.startTime.getTime()).toBe(45 * 60_000);
   });
 });

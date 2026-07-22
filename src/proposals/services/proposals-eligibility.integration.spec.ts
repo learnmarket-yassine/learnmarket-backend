@@ -1,8 +1,9 @@
-import { ConflictException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { LearnRequestStatus } from '@prisma/client';
+import { LearnRequestStatus, LearnRequestType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProposalsService } from './proposals.service';
+import { CreateProposalDto } from '../dto/create-proposal.dto';
 
 describe('ProposalsService.create eligibility guard (integration, real DB)', () => {
   let moduleRef: TestingModule;
@@ -65,11 +66,14 @@ describe('ProposalsService.create eligibility guard (integration, real DB)', () 
     await prisma.category.deleteMany({ where: { id: categoryId } });
   });
 
-  const dto = {
-    sessionDurationMinutes: 60,
-    totalSessions: 1,
-    totalPrice: 50,
-  };
+  function dto(overrides: Partial<CreateProposalDto> = {}): CreateProposalDto {
+    return {
+      sessionDurationMinutes: 60,
+      totalPrice: 50,
+      sessionPlans: [{ title: 'Session 1' }],
+      ...overrides,
+    };
+  }
 
   it('accepts a proposal when the learn request is OPEN', async () => {
     const learnRequest = await prisma.learnRequest.create({
@@ -83,7 +87,7 @@ describe('ProposalsService.create eligibility guard (integration, real DB)', () 
     });
 
     await expect(
-      proposals.create(tutorId, learnRequest.id, dto),
+      proposals.create(tutorId, learnRequest.id, dto()),
     ).resolves.toBeDefined();
   });
 
@@ -110,8 +114,127 @@ describe('ProposalsService.create eligibility guard (integration, real DB)', () 
       });
 
       await expect(
-        proposals.create(tutorId, learnRequest.id, dto),
+        proposals.create(tutorId, learnRequest.id, dto()),
       ).rejects.toBeInstanceOf(ConflictException);
     },
   );
+
+  it('rejects a ONE_TIME proposal with more than one session plan', async () => {
+    const learnRequest = await prisma.learnRequest.create({
+      data: {
+        learnerId,
+        type: LearnRequestType.ONE_TIME,
+        title: 'One time request',
+        status: LearnRequestStatus.OPEN,
+        categoryId,
+      },
+    });
+
+    await expect(
+      proposals.create(
+        tutorId,
+        learnRequest.id,
+        dto({
+          sessionPlans: [{ title: 'Session 1' }, { title: 'Session 2' }],
+        }),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('accepts a ONE_TIME proposal with exactly one session plan', async () => {
+    const learnRequest = await prisma.learnRequest.create({
+      data: {
+        learnerId,
+        type: LearnRequestType.ONE_TIME,
+        title: 'One time request',
+        status: LearnRequestStatus.OPEN,
+        categoryId,
+      },
+    });
+
+    await expect(
+      proposals.create(tutorId, learnRequest.id, dto()),
+    ).resolves.toBeDefined();
+  });
+
+  it('forces payoutMethod to ON_COMPLETION for a single-session proposal regardless of what was submitted', async () => {
+    const learnRequest = await prisma.learnRequest.create({
+      data: {
+        learnerId,
+        type: LearnRequestType.ONE_TIME,
+        title: 'One time request',
+        status: LearnRequestStatus.OPEN,
+        categoryId,
+      },
+    });
+
+    const created = await proposals.create(
+      tutorId,
+      learnRequest.id,
+      dto({ payoutMethod: 'PER_SESSION' as CreateProposalDto['payoutMethod'] }),
+    );
+
+    expect(created.payoutMethod).toBe('ON_COMPLETION');
+  });
+
+  it('rejects a second proposal from the same tutor while one is PENDING, and allows one after a DECLINED', async () => {
+    const learnRequest = await prisma.learnRequest.create({
+      data: {
+        learnerId,
+        type: LearnRequestType.ONE_TIME,
+        title: 'One time request',
+        status: LearnRequestStatus.OPEN,
+        categoryId,
+      },
+    });
+
+    const first = await proposals.create(tutorId, learnRequest.id, dto());
+
+    await expect(
+      proposals.create(tutorId, learnRequest.id, dto()),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    await prisma.proposal.update({
+      where: { id: first.id },
+      data: { status: 'DECLINED' },
+    });
+
+    await expect(
+      proposals.create(tutorId, learnRequest.id, dto()),
+    ).resolves.toBeDefined();
+  });
+
+  it('the partial unique index rejects a duplicate PENDING/ACCEPTED proposal even if the app-level pre-check is bypassed', async () => {
+    const learnRequest = await prisma.learnRequest.create({
+      data: {
+        learnerId,
+        type: LearnRequestType.ONE_TIME,
+        title: 'One time request',
+        status: LearnRequestStatus.OPEN,
+        categoryId,
+      },
+    });
+
+    await prisma.proposal.create({
+      data: {
+        learnRequestId: learnRequest.id,
+        tutorId,
+        sessionDurationMinutes: 60,
+        totalPrice: 50,
+        status: 'PENDING',
+      },
+    });
+
+    await expect(
+      prisma.proposal.create({
+        data: {
+          learnRequestId: learnRequest.id,
+          tutorId,
+          sessionDurationMinutes: 60,
+          totalPrice: 50,
+          status: 'PENDING',
+        },
+      }),
+    ).rejects.toThrow();
+  });
 });

@@ -1,6 +1,6 @@
 import { IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 
-export class CreateLessonDto {
+export class CreateSessionPlanDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(200)

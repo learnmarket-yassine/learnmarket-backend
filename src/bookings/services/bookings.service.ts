@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { SessionStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
@@ -29,10 +30,10 @@ export class BookingsService {
       });
 
       // A cancelled session must become reschedulable, not stuck at BOOKED.
-      if (booking.proposalSessionId) {
-        await tx.proposalSession.update({
-          where: { id: booking.proposalSessionId },
-          data: { status: 'PENDING_SCHEDULE' },
+      if (booking.sessionId) {
+        await tx.session.update({
+          where: { id: booking.sessionId },
+          data: { status: SessionStatus.PENDING_SCHEDULE },
         });
       }
 

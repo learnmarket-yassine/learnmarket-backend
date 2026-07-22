@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, SessionStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateHoldDto } from '../dto/create-hold.dto';
 
@@ -16,28 +16,33 @@ export class HoldsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async requestHold(learnerId: string, dto: CreateHoldDto) {
-    const session = await this.prisma.proposalSession.findUnique({
-      where: { id: dto.proposalSessionId },
+    const session = await this.prisma.session.findUnique({
+      where: { id: dto.sessionId },
       include: { proposal: { include: { learnRequest: true } } },
     });
-    if (!session) throw new NotFoundException('Proposal session not found');
+    if (!session) throw new NotFoundException('Session not found');
     if (session.proposal.learnRequest.learnerId !== learnerId) {
-      throw new ForbiddenException('You do not own this proposal session');
+      throw new ForbiddenException('You do not own this session');
     }
+
+    const startTime = new Date(dto.startTime);
+    const endTime = new Date(
+      startTime.getTime() + session.proposal.sessionDurationMinutes * 60_000,
+    );
 
     return this.createSlotHold(
       session.proposal.tutorId,
       learnerId,
-      dto.proposalSessionId,
-      new Date(dto.startTime),
-      new Date(dto.endTime),
+      dto.sessionId,
+      startTime,
+      endTime,
     );
   }
 
   async createSlotHold(
     tutorId: string,
     learnerId: string,
-    proposalSessionId: string,
+    sessionId: string,
     startTime: Date,
     endTime: Date,
   ) {
@@ -52,11 +57,11 @@ export class HoldsService {
           const expiresAt = new Date(Date.now() + HOLD_DURATION_MS);
 
           return tx.slotHold.upsert({
-            where: { proposalSessionId },
+            where: { sessionId },
             create: {
               tutorId,
               learnerId,
-              proposalSessionId,
+              sessionId,
               startTime,
               endTime,
               expiresAt,
@@ -102,7 +107,7 @@ export class HoldsService {
           data: {
             tutorId: hold.tutorId,
             learnerId: hold.learnerId,
-            proposalSessionId: hold.proposalSessionId,
+            sessionId: hold.sessionId,
             slotHoldId: hold.id,
             startTime: hold.startTime,
             endTime: hold.endTime,
@@ -110,9 +115,9 @@ export class HoldsService {
           },
         });
 
-        await tx.proposalSession.update({
-          where: { id: hold.proposalSessionId },
-          data: { status: 'BOOKED' },
+        await tx.session.update({
+          where: { id: hold.sessionId },
+          data: { status: SessionStatus.BOOKED },
         });
 
         return booking;

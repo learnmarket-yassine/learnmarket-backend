@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
   IsArray,
+  IsEnum,
   IsInt,
   IsNumber,
   IsOptional,
@@ -9,7 +10,8 @@ import {
   IsString,
   ValidateNested,
 } from 'class-validator';
-import { CreateLessonDto } from './create-lesson.dto';
+import { PayoutMethod } from '@prisma/client';
+import { CreateSessionPlanDto } from './create-session-plan.dto';
 
 export class CreateProposalDto {
   @IsOptional()
@@ -20,18 +22,17 @@ export class CreateProposalDto {
   @IsPositive()
   sessionDurationMinutes!: number;
 
-  @IsInt()
-  @IsPositive()
-  totalSessions!: number;
-
   @IsNumber({ maxDecimalPlaces: 2 })
   @IsPositive()
   totalPrice!: number;
 
   @IsOptional()
+  @IsEnum(PayoutMethod)
+  payoutMethod?: PayoutMethod;
+
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })
-  @Type(() => CreateLessonDto)
-  lessons?: CreateLessonDto[];
+  @Type(() => CreateSessionPlanDto)
+  sessionPlans!: CreateSessionPlanDto[];
 }
