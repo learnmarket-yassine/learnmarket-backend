@@ -9,6 +9,7 @@ import {
   LearnRequestStatus,
   LearnRequestType,
   PayoutMethod,
+  Prisma,
   Proposal,
   ProposalStatus,
   SessionStatus,
@@ -17,6 +18,10 @@ import {
 import { AuthUser } from '../../common/decorators/current-user.decorator';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateProposalDto } from '../dto/create-proposal.dto';
+import {
+  GetMyProposalsQueryDto,
+  ProposalGroup,
+} from '../dto/get-my-proposals-query.dto';
 import { UpdateProposalDto } from '../dto/update-proposal.dto';
 
 const PROPOSAL_INCLUDE = { sessionPlans: true, sessions: true } as const;
@@ -67,9 +72,6 @@ export class ProposalsService {
         'You already have a pending or accepted proposal on this learn request',
       );
     }
-
-    // A single-session proposal is paid out only once it's done — there is
-    // no meaningful "per session" split when there's only one session.
     const payoutMethod =
       dto.sessionPlans.length === 1
         ? PayoutMethod.ON_COMPLETION
@@ -106,7 +108,15 @@ export class ProposalsService {
   async findOneForViewer(viewer: AuthUser, id: string) {
     const proposal = await this.prisma.proposal.findUnique({
       where: { id },
-      include: { ...PROPOSAL_INCLUDE, learnRequest: true },
+      include: {
+        ...PROPOSAL_INCLUDE,
+        learnRequest: {
+          include: {
+            category: { select: { name: true } },
+            learner: { select: { country: true, city: true } },
+          },
+        },
+      },
     });
     if (!proposal) throw new NotFoundException('Proposal not found');
     this.assertViewable(viewer, proposal);
@@ -126,6 +136,39 @@ export class ProposalsService {
       include: PROPOSAL_INCLUDE,
       orderBy: { createdAt: 'desc' },
     });
+  }
+
+  async findMyProposals(tutorId: string, query: GetMyProposalsQueryDto) {
+    const where: Prisma.ProposalWhereInput = { tutorId };
+
+    if (query.group === ProposalGroup.ACTIVE) {
+      where.status = { in: [ProposalStatus.PENDING, ProposalStatus.ACCEPTED] };
+    } else if (query.group === ProposalGroup.ARCHIVED) {
+      where.status = {
+        in: [ProposalStatus.DECLINED, ProposalStatus.WITHDRAWN],
+      };
+    }
+
+    const [items, totalCount] = await this.prisma.$transaction([
+      this.prisma.proposal.findMany({
+        where,
+        skip: query.page * query.take,
+        take: query.take,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          learnRequest: {
+            select: {
+              id: true,
+              title: true,
+              category: { select: { name: true } },
+            },
+          },
+        },
+      }),
+      this.prisma.proposal.count({ where }),
+    ]);
+
+    return { paginatedResult: items, totalCount };
   }
 
   async update(tutorId: string, id: string, dto: UpdateProposalDto) {
@@ -185,6 +228,19 @@ export class ProposalsService {
       throw new ConflictException('Only pending proposals can be withdrawn');
     }
     await this.prisma.proposal.delete({ where: { id } });
+  }
+
+  async withdraw(tutorId: string, id: string) {
+    const proposal = await this.prisma.proposal.findFirst({
+      where: { id, tutorId, status: ProposalStatus.PENDING },
+    });
+    if (!proposal) throw new NotFoundException('Proposal not found');
+
+    return this.prisma.proposal.update({
+      where: { id },
+      data: { status: ProposalStatus.WITHDRAWN },
+      include: PROPOSAL_INCLUDE,
+    });
   }
 
   async accept(learnerId: string, proposalId: string) {
@@ -265,8 +321,10 @@ export class ProposalsService {
   ): void {
     const isTutor = proposal.tutorId === viewer.id;
     const isLearner = proposal.learnRequest.learnerId === viewer.id;
+    // 404, not 403 -- a viewer with no legitimate relationship to this
+    // proposal has no reason to learn it exists at all.
     if (!isTutor && !isLearner) {
-      throw new ForbiddenException('You do not have access to this proposal');
+      throw new NotFoundException('Proposal not found');
     }
   }
 }

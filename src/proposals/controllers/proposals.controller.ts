@@ -8,6 +8,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
@@ -18,6 +19,7 @@ import {
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { CreateProposalDto } from '../dto/create-proposal.dto';
+import { GetMyProposalsQueryDto } from '../dto/get-my-proposals-query.dto';
 import { UpdateProposalDto } from '../dto/update-proposal.dto';
 import { ProposalsService } from '../services/proposals.service';
 
@@ -42,6 +44,17 @@ export class ProposalsController {
     return this.proposals.findAllForViewer(viewer);
   }
 
+  // Must stay registered before 'proposals/:id' -- otherwise Nest matches
+  // the literal segment "mine" as the :id param instead.
+  @Get('proposals/mine')
+  @Roles(UserRole.TUTOR)
+  findMyProposals(
+    @CurrentUser('id') tutorId: string,
+    @Query() query: GetMyProposalsQueryDto,
+  ) {
+    return this.proposals.findMyProposals(tutorId, query);
+  }
+
   @Get('proposals/:id')
   findOne(@CurrentUser() viewer: AuthUser, @Param('id') id: string) {
     return this.proposals.findOneForViewer(viewer, id);
@@ -62,6 +75,12 @@ export class ProposalsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(@CurrentUser('id') tutorId: string, @Param('id') id: string) {
     return this.proposals.remove(tutorId, id);
+  }
+
+  @Post('proposals/:id/withdraw')
+  @Roles(UserRole.TUTOR)
+  withdraw(@CurrentUser('id') tutorId: string, @Param('id') id: string) {
+    return this.proposals.withdraw(tutorId, id);
   }
 
   @Post('proposals/:id/accept')
