@@ -32,10 +32,13 @@ const PROPOSAL_INCLUDE = {
       avatar: true,
       headline: true,
       country: true,
+      bio: true,
+      languages: true,
       tutorProfile: {
         select: {
           hourlyRate: true,
           skills: { include: { skill: true } },
+          videoIntroUrl: true,
         },
       },
     },
