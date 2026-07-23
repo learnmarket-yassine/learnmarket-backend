@@ -22,6 +22,7 @@ import { LearnRequestsService } from '../services/learn-requests.service';
 import { CreateLearnRequestDraftDto } from '../dto/create-draft.dto';
 import { UpdateLearnRequestDto } from '../dto/update-learn-request.dto';
 import { GetLearnRequestsQueryDto } from '../dto/list-learn-requests-query.dto';
+import { GetProposalsForRequestQueryDto } from '../dto/get-proposals-for-request-query.dto';
 
 @Controller('learn-requests')
 @UseGuards(RolesGuard)
@@ -49,6 +50,15 @@ export class LearnRequestsController {
   @Get(':id')
   findOne(@CurrentUser() viewer: AuthUser, @Param('id') id: string) {
     return this.learnRequests.findOneDetail(viewer, id);
+  }
+
+  @Get(':id/proposals')
+  findProposalsForRequest(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Query() query: GetProposalsForRequestQueryDto,
+  ) {
+    return this.learnRequests.findProposalsForRequest(user, id, query);
   }
 
   @Patch(':id')
