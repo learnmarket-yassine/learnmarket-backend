@@ -17,6 +17,7 @@ import {
 } from '@prisma/client';
 import { AuthUser } from '../../common/decorators/current-user.decorator';
 import { applyServiceFee, getFeeBreakdown } from '../../common/utils/fee.util';
+import { MessagingService } from '../../messaging/services/messaging.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateProposalDto } from '../dto/create-proposal.dto';
 import {
@@ -29,7 +30,10 @@ const PROPOSAL_INCLUDE = { sessionPlans: true, sessions: true } as const;
 
 @Injectable()
 export class ProposalsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly messaging: MessagingService,
+  ) {}
 
   private withFeeBreakdown<T extends { totalPrice: Prisma.Decimal }>(
     proposal: T,
@@ -108,6 +112,14 @@ export class ProposalsService {
           objective: plan.objective,
         })),
       });
+
+      // Reactivates a previously-inactive conversation between this tutor
+      // and learner, if one exists.
+      await this.messaging.recomputeConversationActiveState(
+        tx,
+        tutorId,
+        learnRequest.learnerId,
+      );
 
       const created = await tx.proposal.findUniqueOrThrow({
         where: { id: proposal.id },
@@ -265,15 +277,23 @@ export class ProposalsService {
   async withdraw(tutorId: string, id: string) {
     const proposal = await this.prisma.proposal.findFirst({
       where: { id, tutorId, status: ProposalStatus.PENDING },
+      include: { learnRequest: true },
     });
     if (!proposal) throw new NotFoundException('Proposal not found');
 
-    const withdrawn = await this.prisma.proposal.update({
-      where: { id },
-      data: { status: ProposalStatus.WITHDRAWN },
-      include: PROPOSAL_INCLUDE,
+    return this.prisma.$transaction(async (tx) => {
+      const withdrawn = await tx.proposal.update({
+        where: { id },
+        data: { status: ProposalStatus.WITHDRAWN },
+        include: PROPOSAL_INCLUDE,
+      });
+      await this.messaging.recomputeConversationActiveState(
+        tx,
+        proposal.tutorId,
+        proposal.learnRequest.learnerId,
+      );
+      return this.withFeeBreakdown(withdrawn);
     });
-    return this.withFeeBreakdown(withdrawn);
   }
 
   async accept(learnerId: string, proposalId: string) {
@@ -325,6 +345,26 @@ export class ProposalsService {
         },
         data: { status: ProposalStatus.DECLINED },
       });
+
+      // Each auto-declined tutor may have just lost their only active
+      // relationship with this learner -- recompute their conversation.
+      // The winning tutor's conversation was already active and stays
+      // active, so it's not touched here.
+      const declinedProposals = await tx.proposal.findMany({
+        where: {
+          learnRequestId: proposal.learnRequestId,
+          id: { not: proposalId },
+          status: ProposalStatus.DECLINED,
+        },
+        select: { tutorId: true },
+      });
+      for (const declined of declinedProposals) {
+        await this.messaging.recomputeConversationActiveState(
+          tx,
+          declined.tutorId,
+          learnerId,
+        );
+      }
 
       const plans = await tx.proposalSession.findMany({
         where: { proposalId },

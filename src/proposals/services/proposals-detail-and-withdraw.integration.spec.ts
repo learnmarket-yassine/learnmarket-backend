@@ -6,6 +6,7 @@ import {
   ProposalStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { MessagingService } from '../../messaging/services/messaging.service';
 import { ProposalsService } from './proposals.service';
 import { AuthUser } from '../../common/decorators/current-user.decorator';
 
@@ -22,7 +23,11 @@ describe('ProposalsService.findOneForViewer / withdraw (integration, real DB)', 
 
   beforeAll(async () => {
     moduleRef = await Test.createTestingModule({
-      providers: [PrismaService, ProposalsService],
+      providers: [
+        PrismaService,
+        ProposalsService,
+        { provide: MessagingService, useValue: { recomputeConversationActiveState: jest.fn() } },
+      ],
     }).compile();
 
     prisma = moduleRef.get(PrismaService);

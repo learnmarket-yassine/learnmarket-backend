@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { LearnRequestStatus, LearnRequestType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { MessagingService } from '../../messaging/services/messaging.service';
 import { ProposalsService } from './proposals.service';
 import { CreateProposalDto } from '../dto/create-proposal.dto';
 
@@ -16,7 +17,11 @@ describe('ProposalsService fee breakdown (integration, real DB)', () => {
 
   beforeAll(async () => {
     moduleRef = await Test.createTestingModule({
-      providers: [PrismaService, ProposalsService],
+      providers: [
+        PrismaService,
+        ProposalsService,
+        { provide: MessagingService, useValue: { recomputeConversationActiveState: jest.fn() } },
+      ],
     }).compile();
 
     prisma = moduleRef.get(PrismaService);
