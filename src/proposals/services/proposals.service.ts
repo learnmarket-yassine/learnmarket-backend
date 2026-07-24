@@ -9,21 +9,37 @@ import {
   LearnRequestStatus,
   LearnRequestType,
   PayoutMethod,
+  Prisma,
   Proposal,
   ProposalStatus,
   SessionStatus,
   UserRole,
 } from '@prisma/client';
 import { AuthUser } from '../../common/decorators/current-user.decorator';
+import { applyServiceFee, getFeeBreakdown } from '../../common/utils/fee.util';
+import { MessagingService } from '../../messaging/services/messaging.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateProposalDto } from '../dto/create-proposal.dto';
+import {
+  GetMyProposalsQueryDto,
+  ProposalGroup,
+} from '../dto/get-my-proposals-query.dto';
 import { UpdateProposalDto } from '../dto/update-proposal.dto';
 
 const PROPOSAL_INCLUDE = { sessionPlans: true, sessions: true } as const;
 
 @Injectable()
 export class ProposalsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly messaging: MessagingService,
+  ) {}
+
+  private withFeeBreakdown<T extends { totalPrice: Prisma.Decimal }>(
+    proposal: T,
+  ): T & ReturnType<typeof getFeeBreakdown> {
+    return { ...proposal, ...getFeeBreakdown(Number(proposal.totalPrice)) };
+  }
 
   async create(
     tutorId: string,
@@ -67,9 +83,6 @@ export class ProposalsService {
         'You already have a pending or accepted proposal on this learn request',
       );
     }
-
-    // A single-session proposal is paid out only once it's done — there is
-    // no meaningful "per session" split when there's only one session.
     const payoutMethod =
       dto.sessionPlans.length === 1
         ? PayoutMethod.ON_COMPLETION
@@ -81,7 +94,11 @@ export class ProposalsService {
           learnRequestId,
           tutorId,
           sessionDurationMinutes: dto.sessionDurationMinutes,
-          totalPrice: dto.totalPrice,
+          // dto.totalPrice is the tutor's asking price -- the fee is
+          // applied here, server-side, to get the learner-facing total
+          // that actually gets stored/charged. Never trust a client-sent
+          // learner-facing number.
+          totalPrice: applyServiceFee(dto.totalPrice),
           payoutMethod,
           message: dto.message,
         },
@@ -96,36 +113,91 @@ export class ProposalsService {
         })),
       });
 
-      return tx.proposal.findUniqueOrThrow({
+      // Reactivates a previously-inactive conversation between this tutor
+      // and learner, if one exists.
+      await this.messaging.recomputeConversationActiveState(
+        tx,
+        tutorId,
+        learnRequest.learnerId,
+      );
+
+      const created = await tx.proposal.findUniqueOrThrow({
         where: { id: proposal.id },
         include: PROPOSAL_INCLUDE,
       });
+      return this.withFeeBreakdown(created);
     });
   }
 
   async findOneForViewer(viewer: AuthUser, id: string) {
     const proposal = await this.prisma.proposal.findUnique({
       where: { id },
-      include: { ...PROPOSAL_INCLUDE, learnRequest: true },
+      include: {
+        ...PROPOSAL_INCLUDE,
+        learnRequest: {
+          include: {
+            category: true,
+            learner: { select: { country: true, city: true } },
+            skills: { include: { skill: true } },
+          },
+        },
+      },
     });
     if (!proposal) throw new NotFoundException('Proposal not found');
     this.assertViewable(viewer, proposal);
-    return proposal;
+    return this.withFeeBreakdown(proposal);
   }
 
-  findAllForViewer(viewer: AuthUser) {
-    if (viewer.role === UserRole.TUTOR) {
-      return this.prisma.proposal.findMany({
-        where: { tutorId: viewer.id },
-        include: PROPOSAL_INCLUDE,
-        orderBy: { createdAt: 'desc' },
-      });
+  async findAllForViewer(viewer: AuthUser) {
+    const proposals =
+      viewer.role === UserRole.TUTOR
+        ? await this.prisma.proposal.findMany({
+            where: { tutorId: viewer.id },
+            include: PROPOSAL_INCLUDE,
+            orderBy: { createdAt: 'desc' },
+          })
+        : await this.prisma.proposal.findMany({
+            where: { learnRequest: { learnerId: viewer.id } },
+            include: PROPOSAL_INCLUDE,
+            orderBy: { createdAt: 'desc' },
+          });
+    return proposals.map((proposal) => this.withFeeBreakdown(proposal));
+  }
+
+  async findMyProposals(tutorId: string, query: GetMyProposalsQueryDto) {
+    const where: Prisma.ProposalWhereInput = { tutorId };
+
+    if (query.group === ProposalGroup.ACTIVE) {
+      where.status = { in: [ProposalStatus.PENDING, ProposalStatus.ACCEPTED] };
+    } else if (query.group === ProposalGroup.ARCHIVED) {
+      where.status = {
+        in: [ProposalStatus.DECLINED, ProposalStatus.WITHDRAWN],
+      };
     }
-    return this.prisma.proposal.findMany({
-      where: { learnRequest: { learnerId: viewer.id } },
-      include: PROPOSAL_INCLUDE,
-      orderBy: { createdAt: 'desc' },
-    });
+
+    const [items, totalCount] = await this.prisma.$transaction([
+      this.prisma.proposal.findMany({
+        where,
+        skip: query.page * query.take,
+        take: query.take,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          learnRequest: {
+            select: {
+              id: true,
+              title: true,
+              category: { select: { name: true } },
+            },
+          },
+        },
+      }),
+      this.prisma.proposal.count({ where }),
+    ]);
+
+    return {
+      paginatedResult: items.map((item) => this.withFeeBreakdown(item)),
+      totalCount,
+    };
   }
 
   async update(tutorId: string, id: string, dto: UpdateProposalDto) {
@@ -135,12 +207,25 @@ export class ProposalsService {
     }
 
     const { sessionPlans } = dto;
+    const scalarData: Prisma.ProposalUpdateInput = {};
+    if (dto.message !== undefined) scalarData.message = dto.message;
+    if (dto.sessionDurationMinutes !== undefined) {
+      scalarData.sessionDurationMinutes = dto.sessionDurationMinutes;
+    }
+    if (dto.totalPrice !== undefined) {
+      scalarData.totalPrice = applyServiceFee(dto.totalPrice);
+    }
+    if (dto.payoutMethod !== undefined) {
+      scalarData.payoutMethod = dto.payoutMethod;
+    }
+
     if (!sessionPlans) {
-      return this.prisma.proposal.update({
+      const updated = await this.prisma.proposal.update({
         where: { id },
-        data: { message: dto.message },
+        data: scalarData,
         include: PROPOSAL_INCLUDE,
       });
+      return this.withFeeBreakdown(updated);
     }
 
     const learnRequest = await this.prisma.learnRequest.findUniqueOrThrow({
@@ -155,12 +240,13 @@ export class ProposalsService {
       );
     }
 
+    if (sessionPlans.length === 1) {
+      scalarData.payoutMethod = PayoutMethod.ON_COMPLETION;
+    }
+
     return this.prisma.$transaction(async (tx) => {
-      if (dto.message !== undefined) {
-        await tx.proposal.update({
-          where: { id },
-          data: { message: dto.message },
-        });
+      if (Object.keys(scalarData).length > 0) {
+        await tx.proposal.update({ where: { id }, data: scalarData });
       }
       await tx.proposalSession.deleteMany({ where: { proposalId: id } });
       await tx.proposalSession.createMany({
@@ -172,10 +258,11 @@ export class ProposalsService {
         })),
       });
 
-      return tx.proposal.findUniqueOrThrow({
+      const updated = await tx.proposal.findUniqueOrThrow({
         where: { id },
         include: PROPOSAL_INCLUDE,
       });
+      return this.withFeeBreakdown(updated);
     });
   }
 
@@ -185,6 +272,28 @@ export class ProposalsService {
       throw new ConflictException('Only pending proposals can be withdrawn');
     }
     await this.prisma.proposal.delete({ where: { id } });
+  }
+
+  async withdraw(tutorId: string, id: string) {
+    const proposal = await this.prisma.proposal.findFirst({
+      where: { id, tutorId, status: ProposalStatus.PENDING },
+      include: { learnRequest: true },
+    });
+    if (!proposal) throw new NotFoundException('Proposal not found');
+
+    return this.prisma.$transaction(async (tx) => {
+      const withdrawn = await tx.proposal.update({
+        where: { id },
+        data: { status: ProposalStatus.WITHDRAWN },
+        include: PROPOSAL_INCLUDE,
+      });
+      await this.messaging.recomputeConversationActiveState(
+        tx,
+        proposal.tutorId,
+        proposal.learnRequest.learnerId,
+      );
+      return this.withFeeBreakdown(withdrawn);
+    });
   }
 
   async accept(learnerId: string, proposalId: string) {
@@ -204,15 +313,29 @@ export class ProposalsService {
     }
 
     return this.prisma.$transaction(async (tx) => {
-      await tx.proposal.update({
-        where: { id: proposalId },
-        data: { status: ProposalStatus.ACCEPTED },
-      });
-
-      await tx.learnRequest.update({
-        where: { id: proposal.learnRequestId },
+      // Conditional updates, not blind ones -- this is the actual
+      // concurrency guard. Two accept() calls for two different PENDING
+      // proposals on the same OPEN learn request can both pass the checks
+      // above before either commits; without a WHERE-guarded write here,
+      // both would succeed and the request would end up double-booked
+      // (two tutors both ACCEPTED, both owed a payout). Whichever
+      // transaction's conditional update loses the race affects 0 rows
+      // and aborts cleanly instead of silently overwriting.
+      const learnRequestClosed = await tx.learnRequest.updateMany({
+        where: { id: proposal.learnRequestId, status: LearnRequestStatus.OPEN },
         data: { status: LearnRequestStatus.CLOSED },
       });
+      if (learnRequestClosed.count === 0) {
+        throw new ConflictException('Learn request is not open');
+      }
+
+      const proposalAccepted = await tx.proposal.updateMany({
+        where: { id: proposalId, status: ProposalStatus.PENDING },
+        data: { status: ProposalStatus.ACCEPTED },
+      });
+      if (proposalAccepted.count === 0) {
+        throw new ConflictException('Proposal is not pending');
+      }
 
       await tx.proposal.updateMany({
         where: {
@@ -222,6 +345,26 @@ export class ProposalsService {
         },
         data: { status: ProposalStatus.DECLINED },
       });
+
+      // Each auto-declined tutor may have just lost their only active
+      // relationship with this learner -- recompute their conversation.
+      // The winning tutor's conversation was already active and stays
+      // active, so it's not touched here.
+      const declinedProposals = await tx.proposal.findMany({
+        where: {
+          learnRequestId: proposal.learnRequestId,
+          id: { not: proposalId },
+          status: ProposalStatus.DECLINED,
+        },
+        select: { tutorId: true },
+      });
+      for (const declined of declinedProposals) {
+        await this.messaging.recomputeConversationActiveState(
+          tx,
+          declined.tutorId,
+          learnerId,
+        );
+      }
 
       const plans = await tx.proposalSession.findMany({
         where: { proposalId },
@@ -241,10 +384,11 @@ export class ProposalsService {
         })),
       });
 
-      return tx.proposal.findUniqueOrThrow({
+      const accepted = await tx.proposal.findUniqueOrThrow({
         where: { id: proposalId },
         include: PROPOSAL_INCLUDE,
       });
+      return this.withFeeBreakdown(accepted);
     });
   }
 
@@ -265,8 +409,10 @@ export class ProposalsService {
   ): void {
     const isTutor = proposal.tutorId === viewer.id;
     const isLearner = proposal.learnRequest.learnerId === viewer.id;
+    // 404, not 403 -- a viewer with no legitimate relationship to this
+    // proposal has no reason to learn it exists at all.
     if (!isTutor && !isLearner) {
-      throw new ForbiddenException('You do not have access to this proposal');
+      throw new NotFoundException('Proposal not found');
     }
   }
 }

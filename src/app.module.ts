@@ -22,6 +22,7 @@ import { ProposalsModule } from './proposals/proposals.module';
 import { LearnRequestsModule } from './learn-requests/learn-requests.module';
 import { HoldsModule } from './holds/holds.module';
 import { BookingsModule } from './bookings/bookings.module';
+import { MessagingModule } from './messaging/messaging.module';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { BookingsModule } from './bookings/bookings.module';
     LearnRequestsModule,
     HoldsModule,
     BookingsModule,
+    MessagingModule,
   ],
   controllers: [AppController],
   providers: [
