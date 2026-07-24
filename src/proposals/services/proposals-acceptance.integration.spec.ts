@@ -176,4 +176,39 @@ describe('ProposalsService.accept (integration, real DB)', () => {
     expect(sessions).toHaveLength(1);
     expect(sessions[0].title).toBe('Pre-existing collider');
   });
+
+  it('never lets two proposals on the same learn request both get accepted under concurrent accept() calls', async () => {
+    const first = await createProposal(tutorId);
+    const second = await createProposal(otherTutorId);
+
+    const results = await Promise.allSettled([
+      proposals.accept(learnerId, first.id),
+      proposals.accept(learnerId, second.id),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === 'fulfilled');
+    const rejected = results.filter((r) => r.status === 'rejected');
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+
+    const acceptedCount = await prisma.proposal.count({
+      where: { learnRequestId, status: ProposalStatus.ACCEPTED },
+    });
+    expect(acceptedCount).toBe(1);
+
+    // The loser must not have been silently overwritten to ACCEPTED --
+    // it's either still PENDING (lost the race before the transaction
+    // ran) or DECLINED (the winner's transaction declined it).
+    const proposalsRows = await prisma.proposal.findMany({
+      where: { id: { in: [first.id, second.id] } },
+    });
+    for (const row of proposalsRows) {
+      expect([ProposalStatus.ACCEPTED, ProposalStatus.PENDING, ProposalStatus.DECLINED]).toContain(
+        row.status,
+      );
+    }
+    expect(
+      proposalsRows.filter((row) => row.status === ProposalStatus.ACCEPTED),
+    ).toHaveLength(1);
+  });
 });

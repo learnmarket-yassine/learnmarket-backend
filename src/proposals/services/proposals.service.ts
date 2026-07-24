@@ -16,6 +16,7 @@ import {
   UserRole,
 } from '@prisma/client';
 import { AuthUser } from '../../common/decorators/current-user.decorator';
+import { applyServiceFee, getFeeBreakdown } from '../../common/utils/fee.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateProposalDto } from '../dto/create-proposal.dto';
 import {
@@ -29,6 +30,12 @@ const PROPOSAL_INCLUDE = { sessionPlans: true, sessions: true } as const;
 @Injectable()
 export class ProposalsService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private withFeeBreakdown<T extends { totalPrice: Prisma.Decimal }>(
+    proposal: T,
+  ): T & ReturnType<typeof getFeeBreakdown> {
+    return { ...proposal, ...getFeeBreakdown(Number(proposal.totalPrice)) };
+  }
 
   async create(
     tutorId: string,
@@ -83,7 +90,11 @@ export class ProposalsService {
           learnRequestId,
           tutorId,
           sessionDurationMinutes: dto.sessionDurationMinutes,
-          totalPrice: dto.totalPrice,
+          // dto.totalPrice is the tutor's asking price -- the fee is
+          // applied here, server-side, to get the learner-facing total
+          // that actually gets stored/charged. Never trust a client-sent
+          // learner-facing number.
+          totalPrice: applyServiceFee(dto.totalPrice),
           payoutMethod,
           message: dto.message,
         },
@@ -98,10 +109,11 @@ export class ProposalsService {
         })),
       });
 
-      return tx.proposal.findUniqueOrThrow({
+      const created = await tx.proposal.findUniqueOrThrow({
         where: { id: proposal.id },
         include: PROPOSAL_INCLUDE,
       });
+      return this.withFeeBreakdown(created);
     });
   }
 
@@ -112,30 +124,32 @@ export class ProposalsService {
         ...PROPOSAL_INCLUDE,
         learnRequest: {
           include: {
-            category: { select: { name: true } },
+            category: true,
             learner: { select: { country: true, city: true } },
+            skills: { include: { skill: true } },
           },
         },
       },
     });
     if (!proposal) throw new NotFoundException('Proposal not found');
     this.assertViewable(viewer, proposal);
-    return proposal;
+    return this.withFeeBreakdown(proposal);
   }
 
-  findAllForViewer(viewer: AuthUser) {
-    if (viewer.role === UserRole.TUTOR) {
-      return this.prisma.proposal.findMany({
-        where: { tutorId: viewer.id },
-        include: PROPOSAL_INCLUDE,
-        orderBy: { createdAt: 'desc' },
-      });
-    }
-    return this.prisma.proposal.findMany({
-      where: { learnRequest: { learnerId: viewer.id } },
-      include: PROPOSAL_INCLUDE,
-      orderBy: { createdAt: 'desc' },
-    });
+  async findAllForViewer(viewer: AuthUser) {
+    const proposals =
+      viewer.role === UserRole.TUTOR
+        ? await this.prisma.proposal.findMany({
+            where: { tutorId: viewer.id },
+            include: PROPOSAL_INCLUDE,
+            orderBy: { createdAt: 'desc' },
+          })
+        : await this.prisma.proposal.findMany({
+            where: { learnRequest: { learnerId: viewer.id } },
+            include: PROPOSAL_INCLUDE,
+            orderBy: { createdAt: 'desc' },
+          });
+    return proposals.map((proposal) => this.withFeeBreakdown(proposal));
   }
 
   async findMyProposals(tutorId: string, query: GetMyProposalsQueryDto) {
@@ -168,7 +182,10 @@ export class ProposalsService {
       this.prisma.proposal.count({ where }),
     ]);
 
-    return { paginatedResult: items, totalCount };
+    return {
+      paginatedResult: items.map((item) => this.withFeeBreakdown(item)),
+      totalCount,
+    };
   }
 
   async update(tutorId: string, id: string, dto: UpdateProposalDto) {
@@ -178,12 +195,25 @@ export class ProposalsService {
     }
 
     const { sessionPlans } = dto;
+    const scalarData: Prisma.ProposalUpdateInput = {};
+    if (dto.message !== undefined) scalarData.message = dto.message;
+    if (dto.sessionDurationMinutes !== undefined) {
+      scalarData.sessionDurationMinutes = dto.sessionDurationMinutes;
+    }
+    if (dto.totalPrice !== undefined) {
+      scalarData.totalPrice = applyServiceFee(dto.totalPrice);
+    }
+    if (dto.payoutMethod !== undefined) {
+      scalarData.payoutMethod = dto.payoutMethod;
+    }
+
     if (!sessionPlans) {
-      return this.prisma.proposal.update({
+      const updated = await this.prisma.proposal.update({
         where: { id },
-        data: { message: dto.message },
+        data: scalarData,
         include: PROPOSAL_INCLUDE,
       });
+      return this.withFeeBreakdown(updated);
     }
 
     const learnRequest = await this.prisma.learnRequest.findUniqueOrThrow({
@@ -198,12 +228,13 @@ export class ProposalsService {
       );
     }
 
+    if (sessionPlans.length === 1) {
+      scalarData.payoutMethod = PayoutMethod.ON_COMPLETION;
+    }
+
     return this.prisma.$transaction(async (tx) => {
-      if (dto.message !== undefined) {
-        await tx.proposal.update({
-          where: { id },
-          data: { message: dto.message },
-        });
+      if (Object.keys(scalarData).length > 0) {
+        await tx.proposal.update({ where: { id }, data: scalarData });
       }
       await tx.proposalSession.deleteMany({ where: { proposalId: id } });
       await tx.proposalSession.createMany({
@@ -215,10 +246,11 @@ export class ProposalsService {
         })),
       });
 
-      return tx.proposal.findUniqueOrThrow({
+      const updated = await tx.proposal.findUniqueOrThrow({
         where: { id },
         include: PROPOSAL_INCLUDE,
       });
+      return this.withFeeBreakdown(updated);
     });
   }
 
@@ -236,11 +268,12 @@ export class ProposalsService {
     });
     if (!proposal) throw new NotFoundException('Proposal not found');
 
-    return this.prisma.proposal.update({
+    const withdrawn = await this.prisma.proposal.update({
       where: { id },
       data: { status: ProposalStatus.WITHDRAWN },
       include: PROPOSAL_INCLUDE,
     });
+    return this.withFeeBreakdown(withdrawn);
   }
 
   async accept(learnerId: string, proposalId: string) {
@@ -260,15 +293,29 @@ export class ProposalsService {
     }
 
     return this.prisma.$transaction(async (tx) => {
-      await tx.proposal.update({
-        where: { id: proposalId },
-        data: { status: ProposalStatus.ACCEPTED },
-      });
-
-      await tx.learnRequest.update({
-        where: { id: proposal.learnRequestId },
+      // Conditional updates, not blind ones -- this is the actual
+      // concurrency guard. Two accept() calls for two different PENDING
+      // proposals on the same OPEN learn request can both pass the checks
+      // above before either commits; without a WHERE-guarded write here,
+      // both would succeed and the request would end up double-booked
+      // (two tutors both ACCEPTED, both owed a payout). Whichever
+      // transaction's conditional update loses the race affects 0 rows
+      // and aborts cleanly instead of silently overwriting.
+      const learnRequestClosed = await tx.learnRequest.updateMany({
+        where: { id: proposal.learnRequestId, status: LearnRequestStatus.OPEN },
         data: { status: LearnRequestStatus.CLOSED },
       });
+      if (learnRequestClosed.count === 0) {
+        throw new ConflictException('Learn request is not open');
+      }
+
+      const proposalAccepted = await tx.proposal.updateMany({
+        where: { id: proposalId, status: ProposalStatus.PENDING },
+        data: { status: ProposalStatus.ACCEPTED },
+      });
+      if (proposalAccepted.count === 0) {
+        throw new ConflictException('Proposal is not pending');
+      }
 
       await tx.proposal.updateMany({
         where: {
@@ -297,10 +344,11 @@ export class ProposalsService {
         })),
       });
 
-      return tx.proposal.findUniqueOrThrow({
+      const accepted = await tx.proposal.findUniqueOrThrow({
         where: { id: proposalId },
         include: PROPOSAL_INCLUDE,
       });
+      return this.withFeeBreakdown(accepted);
     });
   }
 
