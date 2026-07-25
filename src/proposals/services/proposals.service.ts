@@ -26,7 +26,13 @@ import {
 } from '../dto/get-my-proposals-query.dto';
 import { UpdateProposalDto } from '../dto/update-proposal.dto';
 
-const PROPOSAL_INCLUDE = { sessionPlans: true, sessions: true } as const;
+// sessions include their slotHold (if any) so a client can resume an
+// in-progress HELD session (check status + expiresAt) without a separate
+// endpoint.
+const PROPOSAL_INCLUDE = {
+  sessionPlans: true,
+  sessions: { include: { slotHold: true } },
+} as const;
 
 @Injectable()
 export class ProposalsService {

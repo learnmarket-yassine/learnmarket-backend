@@ -18,12 +18,28 @@ export class HoldsCleanupCron {
 
   @Cron('0 0 * * * *')
   async expireStaleHolds(): Promise<void> {
-    const { count } = await this.prisma.slotHold.updateMany({
+    const stale = await this.prisma.slotHold.findMany({
       where: { status: 'ACTIVE', expiresAt: { lte: new Date() } },
-      data: { status: 'EXPIRED' },
+      select: { id: true, sessionId: true },
     });
-    if (count > 0) {
-      this.logger.debug(`Expired ${count} stale slot hold(s)`);
-    }
+    if (stale.length === 0) return;
+
+    await this.prisma.$transaction([
+      this.prisma.slotHold.updateMany({
+        where: { id: { in: stale.map((hold) => hold.id) } },
+        data: { status: 'EXPIRED' },
+      }),
+      // These sessions were left at HELD by the hold that just expired --
+      // unwind them back to schedulable, same as releaseSlotHold does.
+      this.prisma.session.updateMany({
+        where: {
+          id: { in: stale.map((hold) => hold.sessionId) },
+          status: 'HELD',
+        },
+        data: { status: 'PENDING_SCHEDULE' },
+      }),
+    ]);
+
+    this.logger.debug(`Expired ${stale.length} stale slot hold(s)`);
   }
 }
