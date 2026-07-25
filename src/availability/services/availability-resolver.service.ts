@@ -24,6 +24,7 @@ export class AvailabilityResolverService {
   ): Promise<Date[]> {
     const dates = enumerateDates(fromDate, toDate);
     const durationMs = durationMinutes * 60_000;
+    const now = new Date();
 
     // Widened bounds so no relevant booking/hold is clipped by an extreme timezone offset.
     const queryLowerBound = addDays(new Date(`${fromDate}T00:00:00.000Z`), -1);
@@ -105,6 +106,10 @@ export class AvailabilityResolverService {
       windows = subtract(windows, blockedWindows);
 
       windows = subtract(windows, busy);
+
+      windows = windows
+        .map((w) => (w.start < now ? { start: now, end: w.end } : w))
+        .filter((w) => w.start.getTime() < w.end.getTime());
 
       allSlots.push(...chunkIntoSlots(windows, durationMs));
     }

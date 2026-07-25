@@ -13,6 +13,7 @@ import {
 } from '@prisma/client';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
 import { buildScopedWhere } from '../../common/filtering/scoped-where.util';
+import { getFeeBreakdown } from '../../common/utils/fee.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CategoriesService } from '../../categories/categories.service';
 import { SkillsService } from '../../skills/skills.service';
@@ -21,6 +22,15 @@ import { UpdateLearnRequestDto } from '../dto/update-learn-request.dto';
 import { GetLearnRequestsQueryDto } from '../dto/list-learn-requests-query.dto';
 import { GetProposalsForRequestQueryDto } from '../dto/get-proposals-for-request-query.dto';
 import { LearnRequestValidationService } from './learn-request-validation.service';
+
+// Mirrors the frontend's ACTIONABLE_SESSION_STATUSES (learner-booking
+// feature) -- sessions the learner still has something to do on. Used to
+// decide whether a CLOSED learn request needs the learner's attention.
+const SESSION_NEEDS_ACTION_STATUSES: SessionStatus[] = [
+  SessionStatus.PENDING_SCHEDULE,
+  SessionStatus.HELD,
+  SessionStatus.CANCELLED,
+];
 
 const PROPOSAL_INCLUDE = {
   sessionPlans: { orderBy: { sessionNumber: 'asc' } },
@@ -61,6 +71,14 @@ function buildDetailInclude() {
   return {
     category: true,
     skills: { include: { skill: true } },
+    // At most one -- accept() closes the request and declines every other
+    // proposal, so ACCEPTED is unique per learn request. Powers the
+    // booking step on the details page: the accepted proposal (and its
+    // sessions) is scoped there, not the full proposals list.
+    proposals: {
+      where: { status: ProposalStatus.ACCEPTED },
+      include: PROPOSAL_INCLUDE,
+    },
   } satisfies Prisma.LearnRequestInclude;
 }
 
@@ -129,7 +147,7 @@ export class LearnRequestsService {
           proposals: {
             some: {
               sessions: {
-                some: { status: SessionStatus.PENDING_SCHEDULE },
+                some: { status: { in: SESSION_NEEDS_ACTION_STATUSES } },
               },
             },
           },
@@ -172,7 +190,13 @@ export class LearnRequestsService {
     if (!isOwner && !isTutorViewable && !isAdmin) {
       throw new NotFoundException('Learn request not found');
     }
-    return learnRequest;
+    return {
+      ...learnRequest,
+      proposals: learnRequest.proposals.map((proposal) => ({
+        ...proposal,
+        ...getFeeBreakdown(Number(proposal.totalPrice)),
+      })),
+    };
   }
 
   async findProposalsForRequest(
@@ -320,7 +344,7 @@ export class LearnRequestsService {
     > = closedIds.length
       ? this.prisma.session.findMany({
           where: {
-            status: SessionStatus.PENDING_SCHEDULE,
+            status: { in: SESSION_NEEDS_ACTION_STATUSES },
             proposal: { learnRequestId: { in: closedIds } },
           },
           select: { proposal: { select: { learnRequestId: true } } },

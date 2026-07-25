@@ -11,6 +11,21 @@ import { CreateHoldDto } from '../dto/create-hold.dto';
 
 const HOLD_DURATION_MS = 10 * 60 * 1000;
 
+// States a learner may request a new hold from. PENDING_SCHEDULE and
+// CANCELLED are the "obviously reschedulable" cases. HELD is included too
+// even though the normal UI path resumes an in-progress hold instead of
+// re-requesting one -- releaseSlotHold is fired-and-forgotten from the
+// client (see useBookingFlow's chooseDifferentTime), so a new hold request
+// can land before that release's session-status reset has committed. Since
+// createSlotHold upserts by sessionId, re-holding a HELD session is always
+// safe; only LOCKED (not this learner's turn yet) and the terminal
+// BOOKED/COMPLETED states should actually reject.
+const HOLD_REQUESTABLE_STATUSES: SessionStatus[] = [
+  SessionStatus.PENDING_SCHEDULE,
+  SessionStatus.HELD,
+  SessionStatus.CANCELLED,
+];
+
 @Injectable()
 export class HoldsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -24,8 +39,18 @@ export class HoldsService {
     if (session.proposal.learnRequest.learnerId !== learnerId) {
       throw new ForbiddenException('You do not own this session');
     }
+    if (!HOLD_REQUESTABLE_STATUSES.includes(session.status)) {
+      throw new ConflictException(
+        session.status === SessionStatus.LOCKED
+          ? 'This session cannot be scheduled yet — complete the previous session first'
+          : 'This session has already been scheduled',
+      );
+    }
 
     const startTime = new Date(dto.startTime);
+    if (startTime.getTime() <= Date.now()) {
+      throw new ConflictException('This time has already passed');
+    }
     const endTime = new Date(
       startTime.getTime() + session.proposal.sessionDurationMinutes * 60_000,
     );
@@ -49,14 +74,28 @@ export class HoldsService {
     try {
       return await this.withDeadlockRetry(() =>
         this.prisma.$transaction(async (tx) => {
-          await tx.$executeRaw`
+          // Same-tutor stale-hold cleanup. RETURNING captures which
+          // sessions were actually affected so their status can be
+          // unwound from HELD back to PENDING_SCHEDULE -- these may be
+          // entirely different sessions than the one being held below.
+          const expired = await tx.$queryRaw<{ session_id: string }[]>`
             UPDATE "slot_holds" SET status = 'EXPIRED'
             WHERE tutor_id = ${tutorId} AND status = 'ACTIVE' AND expires_at <= now()
+            RETURNING session_id
           `;
+          if (expired.length > 0) {
+            await tx.session.updateMany({
+              where: {
+                id: { in: expired.map((row) => row.session_id) },
+                status: SessionStatus.HELD,
+              },
+              data: { status: SessionStatus.PENDING_SCHEDULE },
+            });
+          }
 
           const expiresAt = new Date(Date.now() + HOLD_DURATION_MS);
 
-          return tx.slotHold.upsert({
+          const hold = await tx.slotHold.upsert({
             where: { sessionId },
             create: {
               tutorId,
@@ -76,6 +115,13 @@ export class HoldsService {
               status: 'ACTIVE',
             },
           });
+
+          await tx.session.update({
+            where: { id: sessionId },
+            data: { status: SessionStatus.HELD },
+          });
+
+          return hold;
         }),
       );
     } catch (error) {
@@ -134,9 +180,26 @@ export class HoldsService {
     });
     if (!hold) throw new NotFoundException('Slot hold not found');
 
-    return this.prisma.slotHold.update({
+    // Guarded like confirmSlotHold: only a genuinely ACTIVE hold gets
+    // released. If confirmSlotHold already converted it (or another
+    // release call already expired it), this is a correct no-op --
+    // never overwrite a CONVERTED hold's terminal state.
+    await this.prisma.$transaction(async (tx) => {
+      const released = await tx.slotHold.updateMany({
+        where: { id: slotHoldId, status: 'ACTIVE' },
+        data: { status: 'EXPIRED' },
+      });
+
+      if (released.count > 0) {
+        await tx.session.updateMany({
+          where: { id: hold.sessionId, status: SessionStatus.HELD },
+          data: { status: SessionStatus.PENDING_SCHEDULE },
+        });
+      }
+    });
+
+    return this.prisma.slotHold.findUniqueOrThrow({
       where: { id: slotHoldId },
-      data: { status: 'EXPIRED' },
     });
   }
 

@@ -8,11 +8,6 @@
 -- CreateEnum
 CREATE TYPE "message_status" AS ENUM ('SENT', 'DELIVERED', 'READ');
 
--- AlterTable
-ALTER TABLE "bookings" DROP COLUMN "time_range";
-
--- AlterTable
-ALTER TABLE "slot_holds" DROP COLUMN "time_range";
 
 -- CreateTable
 CREATE TABLE "conversations" (

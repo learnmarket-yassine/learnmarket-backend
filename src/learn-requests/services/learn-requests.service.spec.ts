@@ -272,7 +272,15 @@ describe('LearnRequestsService.findMany', () => {
           proposals: {
             some: {
               sessions: {
-                some: { status: SessionStatus.PENDING_SCHEDULE },
+                some: {
+                  status: {
+                    in: [
+                      SessionStatus.PENDING_SCHEDULE,
+                      SessionStatus.HELD,
+                      SessionStatus.CANCELLED,
+                    ],
+                  },
+                },
               },
             },
           },
@@ -332,7 +340,13 @@ describe('LearnRequestsService.findMany', () => {
     ][];
     const sessionCall = sessionCalls[0][0];
     expect(sessionCall.where).toMatchObject({
-      status: SessionStatus.PENDING_SCHEDULE,
+      status: {
+        in: [
+          SessionStatus.PENDING_SCHEDULE,
+          SessionStatus.HELD,
+          SessionStatus.CANCELLED,
+        ],
+      },
       proposal: { learnRequestId: { in: ['lr-closed'] } },
     });
     expect(paginatedResult[0].actionNeeded).toBe(true);
