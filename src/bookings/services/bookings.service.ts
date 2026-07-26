@@ -7,6 +7,7 @@ import {
 import { SessionStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SessionsService } from '../../sessions/services/sessions.service';
+import { GetMyBookingsQueryDto } from '../dto/get-my-bookings-query.dto';
 
 @Injectable()
 export class BookingsService {
@@ -15,9 +16,9 @@ export class BookingsService {
     private readonly sessionsService: SessionsService,
   ) {}
 
-  findConfirmedByTutor(tutorId: string) {
+  findConfirmedByTutor(tutorId: string, query?: GetMyBookingsQueryDto) {
     return this.prisma.booking.findMany({
-      where: { tutorId, status: 'CONFIRMED' },
+      where: { tutorId, status: 'CONFIRMED', ...startTimeFilter(query) },
       orderBy: { startTime: 'asc' },
       select: {
         id: true,
@@ -26,6 +27,21 @@ export class BookingsService {
         sessionId: true,
         session: { select: { title: true } },
         learner: { select: { firstname: true, lastname: true } },
+      },
+    });
+  }
+
+  findConfirmedByLearner(learnerId: string, query?: GetMyBookingsQueryDto) {
+    return this.prisma.booking.findMany({
+      where: { learnerId, status: 'CONFIRMED', ...startTimeFilter(query) },
+      orderBy: { startTime: 'asc' },
+      select: {
+        id: true,
+        startTime: true,
+        endTime: true,
+        sessionId: true,
+        session: { select: { title: true } },
+        tutor: { select: { firstname: true, lastname: true } },
       },
     });
   }
@@ -70,4 +86,14 @@ export class BookingsService {
 
     return cancelled;
   }
+}
+
+function startTimeFilter(query?: GetMyBookingsQueryDto) {
+  if (!query?.from && !query?.to) return {};
+  return {
+    startTime: {
+      ...(query.from ? { gte: new Date(query.from) } : {}),
+      ...(query.to ? { lte: new Date(query.to) } : {}),
+    },
+  };
 }

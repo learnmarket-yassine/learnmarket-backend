@@ -199,6 +199,51 @@ describe('BookingsService (integration, real DB)', () => {
     expect(afterCancel.zoomStartUrl).toBeNull();
   });
 
+  it('findConfirmedByLearner returns the confirmed booking for the learner', async () => {
+    const hold = await holds.createSlotHold(
+      tutorId,
+      learnerId,
+      sessionAId,
+      new Date('2027-01-01T10:00:00.000Z'),
+      new Date('2027-01-01T11:00:00.000Z'),
+    );
+    const booking = await holds.confirmSlotHold(hold.id);
+
+    const result = await bookings.findConfirmedByLearner(learnerId);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe(booking.id);
+    expect(result[0].tutor).toEqual({ firstname: 'T', lastname: 'Tutor' });
+  });
+
+  it('filters findConfirmedByTutor and findConfirmedByLearner by from/to', async () => {
+    await holds
+      .createSlotHold(
+        tutorId,
+        learnerId,
+        sessionAId,
+        new Date('2027-01-01T10:00:00.000Z'),
+        new Date('2027-01-01T11:00:00.000Z'),
+      )
+      .then((hold) => holds.confirmSlotHold(hold.id));
+
+    const inRange = await bookings.findConfirmedByTutor(tutorId, {
+      from: '2027-01-01T00:00:00.000Z',
+      to: '2027-01-02T00:00:00.000Z',
+    });
+    expect(inRange).toHaveLength(1);
+
+    const outOfRange = await bookings.findConfirmedByTutor(tutorId, {
+      from: '2027-02-01T00:00:00.000Z',
+    });
+    expect(outOfRange).toHaveLength(0);
+
+    const learnerInRange = await bookings.findConfirmedByLearner(learnerId, {
+      to: '2027-01-02T00:00:00.000Z',
+    });
+    expect(learnerInRange).toHaveLength(1);
+  });
+
   it('does not error deleting a meeting that was never provisioned (Zoom creation had failed)', async () => {
     createMeetingMock.mockRejectedValueOnce(new Error('Zoom API unavailable'));
 
