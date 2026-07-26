@@ -49,12 +49,26 @@ export const UPLOAD_POLICIES: Record<UploadPurpose, UploadPolicy> = {
     visibility: 'private',
     requiredRole: UserRole.TUTOR,
   },
-  [UploadPurpose.SESSION_ATTACHMENT]: {
-    keyPrefix: 'session-attachments',
+  [UploadPurpose.ANNOUNCEMENT_ATTACHMENT]: {
+    keyPrefix: 'announcement-attachments',
     maxSizeBytes: 20 * 1024 * 1024,
     allowedMimeTypes: DOCUMENT_MIME_TYPES,
     visibility: 'private',
-    // No requiredRole -- both the tutor and the learner in a session can share files.
+    // No requiredRole -- either participant can post an announcement.
+  },
+  [UploadPurpose.ASSIGNMENT_ATTACHMENT]: {
+    keyPrefix: 'assignment-attachments',
+    maxSizeBytes: 20 * 1024 * 1024,
+    allowedMimeTypes: DOCUMENT_MIME_TYPES,
+    visibility: 'private',
+    requiredRole: UserRole.TUTOR,
+  },
+  [UploadPurpose.SUBMISSION_ATTACHMENT]: {
+    keyPrefix: 'submission-attachments',
+    maxSizeBytes: 20 * 1024 * 1024,
+    allowedMimeTypes: DOCUMENT_MIME_TYPES,
+    visibility: 'private',
+    requiredRole: UserRole.LEARNER,
   },
 };
 

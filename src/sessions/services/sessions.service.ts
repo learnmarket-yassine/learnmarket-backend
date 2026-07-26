@@ -1,6 +1,5 @@
 import {
   ConflictException,
-  ForbiddenException,
   forwardRef,
   Inject,
   Injectable,
@@ -8,16 +7,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { UploadPurpose } from '../../storage/upload-purpose.enum';
-import { UploadService } from '../../storage/upload.service';
-import { AttachFileDto } from '../../storage/dto/attach-file.dto';
 import { ZoomService } from './zoom.service';
 import { SessionsGateway } from '../gateways/sessions.gateway';
 
 const MEETING_TOPIC = 'Yora Tutoring Session';
 
-// A learner/tutor can join up to 15 minutes before the scheduled start, and
-// up to 30 minutes after the scheduled end (grace window for overruns).
 const JOIN_WINDOW_BEFORE_MS = 15 * 60_000;
 const JOIN_GRACE_AFTER_MS = 30 * 60_000;
 
@@ -26,7 +20,7 @@ const SESSION_WITH_PARTICIPANTS = {
   booking: true,
 } as const;
 
-type SessionWithParticipants = Awaited<
+export type SessionWithParticipants = Awaited<
   ReturnType<SessionsService['assertParticipant']>
 >;
 
@@ -37,14 +31,10 @@ export class SessionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly zoomService: ZoomService,
-    private readonly uploadService: UploadService,
     @Inject(forwardRef(() => SessionsGateway))
     private readonly sessionsGateway: SessionsGateway,
   ) {}
 
-  // 404, not 403 -- a caller with no legitimate relationship to this
-  // session has no reason to learn it exists at all (same pattern as
-  // ProposalsService.assertViewable / MessagingService.assertParticipant).
   async assertParticipant(userId: string, sessionId: string) {
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
@@ -60,16 +50,10 @@ export class SessionsService {
     return session;
   }
 
-  private isTutor(session: SessionWithParticipants, userId: string): boolean {
+  isTutor(session: SessionWithParticipants, userId: string): boolean {
     return session.proposal.tutorId === userId;
   }
 
-  /**
-   * Safe, non-sensitive session context for the room page (title, objective,
-   * schedule, join indicators) -- explicitly whitelisted fields, never a raw
-   * spread of the session record, since that record also carries the zoom*
-   * columns via assertParticipant's include.
-   */
   async getSessionContext(userId: string, sessionId: string) {
     const session = await this.assertParticipant(userId, sessionId);
     return {
@@ -89,13 +73,6 @@ export class SessionsService {
     };
   }
 
-  /**
-   * Creates the Zoom meeting for a session's confirmed booking, if one
-   * doesn't already exist. Never throws -- called both right after booking
-   * confirmation (where a Zoom outage must not block the booking) and from
-   * the tutor-triggered retry endpoint (where the caller wants to see the
-   * failure, but as a normal service response, not an unhandled crash).
-   */
   async provisionMeeting(sessionId: string): Promise<void> {
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
@@ -142,11 +119,6 @@ export class SessionsService {
     return this.getMeetingDetails(userId, sessionId);
   }
 
-  /**
-   * Role-scoped by construction: zoomStartUrl is only ever read inside the
-   * isTutor branch below, and that branch's return value is never merged
-   * with or derived from anything the non-tutor branch touches.
-   */
   async getMeetingDetails(userId: string, sessionId: string) {
     const session = await this.assertParticipant(userId, sessionId);
     const isTutor = this.isTutor(session, userId);
@@ -183,12 +155,6 @@ export class SessionsService {
       now <= booking.endTime.getTime() + JOIN_GRACE_AFTER_MS
     );
   }
-
-  /**
-   * Removes the Zoom meeting (if any) for a session whose booking was just
-   * cancelled. Never throws -- a Zoom cleanup failure must not block the
-   * cancellation that already committed.
-   */
   async deprovisionMeeting(sessionId: string): Promise<void> {
     try {
       const session = await this.prisma.session.findUnique({
@@ -230,83 +196,5 @@ export class SessionsService {
       this.sessionsGateway.emitParticipantJoined(sessionId, 'LEARNER');
     }
     return { joined: true };
-  }
-
-  // ---------------------------------------------------------------------
-  // Attachments
-  // ---------------------------------------------------------------------
-
-  async addAttachment(userId: string, sessionId: string, dto: AttachFileDto) {
-    await this.assertParticipant(userId, sessionId);
-    const head = await this.uploadService.finalize(
-      userId,
-      UploadPurpose.SESSION_ATTACHMENT,
-      dto.key,
-    );
-    return this.prisma.sessionAttachment.create({
-      data: {
-        sessionId,
-        uploaderId: userId,
-        key: dto.key,
-        fileName: dto.fileName ?? dto.key.split('/').pop() ?? 'file',
-        mimeType: dto.mimeType ?? head.contentType ?? null,
-        fileSize: head.contentLength ?? null,
-      },
-    });
-  }
-
-  async listAttachments(userId: string, sessionId: string) {
-    await this.assertParticipant(userId, sessionId);
-    return this.prisma.sessionAttachment.findMany({
-      where: { sessionId },
-      orderBy: { createdAt: 'asc' },
-      include: {
-        uploader: { select: { id: true, firstname: true, lastname: true } },
-      },
-    });
-  }
-
-  async getAttachmentUrl(
-    userId: string,
-    sessionId: string,
-    attachmentId: string,
-  ) {
-    await this.assertParticipant(userId, sessionId);
-    const attachment = await this.findOwnedAttachment(sessionId, attachmentId, {
-      requireUploader: false,
-      userId,
-    });
-    return this.uploadService.getSignedDownloadUrl(attachment.key);
-  }
-
-  async removeAttachment(
-    userId: string,
-    sessionId: string,
-    attachmentId: string,
-  ) {
-    await this.assertParticipant(userId, sessionId);
-    const attachment = await this.findOwnedAttachment(sessionId, attachmentId, {
-      requireUploader: true,
-      userId,
-    });
-    await this.prisma.sessionAttachment.delete({ where: { id: attachmentId } });
-    await this.uploadService.deleteIfPresent(attachment.key);
-  }
-
-  private async findOwnedAttachment(
-    sessionId: string,
-    attachmentId: string,
-    opts: { requireUploader: boolean; userId: string },
-  ) {
-    const attachment = await this.prisma.sessionAttachment.findUnique({
-      where: { id: attachmentId },
-    });
-    if (!attachment || attachment.sessionId !== sessionId) {
-      throw new NotFoundException('Attachment not found');
-    }
-    if (opts.requireUploader && attachment.uploaderId !== opts.userId) {
-      throw new ForbiddenException('You can only delete your own files');
-    }
-    return attachment;
   }
 }
