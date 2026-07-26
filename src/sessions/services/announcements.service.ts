@@ -1,9 +1,14 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UploadPurpose } from '../../storage/upload-purpose.enum';
 import { UploadService } from '../../storage/upload.service';
 import { CreateAnnouncementDto } from '../dto/create-announcement.dto';
 import { CreateCommentDto } from '../dto/create-comment.dto';
+import { UpdateAnnouncementDto } from '../dto/update-announcement.dto';
 import { SessionsService } from './sessions.service';
 
 const AUTHOR_SELECT = {
@@ -77,6 +82,50 @@ export class AnnouncementsService {
         },
       },
     });
+  }
+
+  async update(
+    userId: string,
+    announcementId: string,
+    dto: UpdateAnnouncementDto,
+  ) {
+    await this.findOwnedByAuthor(userId, announcementId);
+    return this.prisma.announcement.update({
+      where: { id: announcementId },
+      data: { content: dto.content },
+      include: {
+        author: { select: AUTHOR_SELECT },
+        attachments: true,
+        comments: {
+          orderBy: { createdAt: 'asc' },
+          include: { author: { select: AUTHOR_SELECT } },
+        },
+      },
+    });
+  }
+
+  async remove(userId: string, announcementId: string) {
+    const announcement = await this.findOwnedByAuthor(userId, announcementId);
+    await this.prisma.announcement.delete({ where: { id: announcementId } });
+    await Promise.all(
+      announcement.attachments.map((attachment) =>
+        this.uploadService.deleteIfPresent(attachment.key),
+      ),
+    );
+  }
+
+  private async findOwnedByAuthor(userId: string, announcementId: string) {
+    const announcement = await this.prisma.announcement.findUnique({
+      where: { id: announcementId },
+      include: { attachments: true },
+    });
+    if (!announcement) throw new NotFoundException('Announcement not found');
+
+    await this.sessions.assertParticipant(userId, announcement.sessionId);
+    if (announcement.authorId !== userId) {
+      throw new ForbiddenException('You can only edit your own announcements');
+    }
+    return announcement;
   }
 
   async getAttachmentUrl(

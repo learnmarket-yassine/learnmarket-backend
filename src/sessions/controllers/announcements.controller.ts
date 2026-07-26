@@ -1,7 +1,18 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Patch,
+  Post,
+} from '@nestjs/common';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { CreateAnnouncementDto } from '../dto/create-announcement.dto';
 import { CreateCommentDto } from '../dto/create-comment.dto';
+import { UpdateAnnouncementDto } from '../dto/update-announcement.dto';
 import { AnnouncementsService } from '../services/announcements.service';
 
 @Controller()
@@ -21,6 +32,21 @@ export class AnnouncementsController {
   @Get('sessions/:id/announcements')
   list(@CurrentUser('id') userId: string, @Param('id') id: string) {
     return this.announcements.list(userId, id);
+  }
+
+  @Patch('announcements/:id')
+  update(
+    @CurrentUser('id') userId: string,
+    @Param('id') id: string,
+    @Body() dto: UpdateAnnouncementDto,
+  ) {
+    return this.announcements.update(userId, id, dto);
+  }
+
+  @Delete('announcements/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  remove(@CurrentUser('id') userId: string, @Param('id') id: string) {
+    return this.announcements.remove(userId, id);
   }
 
   @Get('announcements/:id/attachments/:attachmentId/url')

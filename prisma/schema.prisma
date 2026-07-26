@@ -579,10 +579,6 @@ model Session {
   title         String
   objective     String?       @db.Text
   status        SessionStatus @default(LOCKED)
-
-  // Zoom meeting provisioned once the session's Booking is confirmed.
-  // zoomStartUrl carries a host-privilege token -- it must only ever be
-  // returned to the session's own tutor (see SessionsService.getMeetingDetails).
   zoomMeetingId   String?   @map("zoom_meeting_id")
   zoomJoinUrl     String?   @map("zoom_join_url")
   zoomStartUrl    String?   @map("zoom_start_url")
