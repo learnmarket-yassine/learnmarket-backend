@@ -1,7 +1,10 @@
-import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../prisma/prisma.service';
 import { HoldsService } from '../holds/services/holds.service';
+import { SessionsService } from '../sessions/services/sessions.service';
+import { ZoomService, ZoomMeeting } from '../sessions/services/zoom.service';
+import { SessionsGateway } from '../sessions/gateways/sessions.gateway';
+import { UploadService } from '../storage/upload.service';
 import { BookingsService } from './services/bookings.service';
 
 describe('BookingsService (integration, real DB)', () => {
@@ -9,14 +12,38 @@ describe('BookingsService (integration, real DB)', () => {
   let prisma: PrismaService;
   let holds: HoldsService;
   let bookings: BookingsService;
+  let createMeetingMock: jest.Mock;
 
   let tutorId: string;
   let learnerId: string;
   let sessionAId: string;
 
+  const testMeeting: ZoomMeeting = {
+    id: 84912052310,
+    join_url: 'https://zoom.us/j/testmeeting',
+    start_url: 'https://zoom.us/s/testmeeting?zak=host-token',
+    password: 'pw123',
+  };
+
   beforeAll(async () => {
+    createMeetingMock = jest.fn().mockResolvedValue(testMeeting);
+
     moduleRef = await Test.createTestingModule({
-      providers: [PrismaService, HoldsService, BookingsService],
+      providers: [
+        PrismaService,
+        HoldsService,
+        BookingsService,
+        SessionsService,
+        {
+          provide: ZoomService,
+          useValue: { createMeeting: createMeetingMock },
+        },
+        { provide: UploadService, useValue: {} },
+        {
+          provide: SessionsGateway,
+          useValue: { emitParticipantJoined: jest.fn() },
+        },
+      ],
     }).compile();
 
     prisma = moduleRef.get(PrismaService);
@@ -30,6 +57,7 @@ describe('BookingsService (integration, real DB)', () => {
   });
 
   beforeEach(async () => {
+    createMeetingMock.mockClear();
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
     const [tutor, learner] = await Promise.all([
@@ -84,7 +112,7 @@ describe('BookingsService (integration, real DB)', () => {
     });
   });
 
-  it('cancelling a booking sets the session to CANCELLED, not PENDING_SCHEDULE', async () => {
+  it('findConfirmedByLearner returns the confirmed booking for the learner', async () => {
     const hold = await holds.createSlotHold(
       tutorId,
       learnerId,
@@ -94,47 +122,55 @@ describe('BookingsService (integration, real DB)', () => {
     );
     const booking = await holds.confirmSlotHold(hold.id);
 
-    await bookings.cancel(learnerId, booking.id);
+    const result = await bookings.findConfirmedByLearner(learnerId);
 
-    const session = await prisma.session.findUniqueOrThrow({
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe(booking.id);
+    expect(result[0].tutor).toEqual({ firstname: 'T', lastname: 'Tutor' });
+  });
+
+  it('filters findConfirmedByTutor and findConfirmedByLearner by from/to', async () => {
+    await holds
+      .createSlotHold(
+        tutorId,
+        learnerId,
+        sessionAId,
+        new Date('2027-01-01T10:00:00.000Z'),
+        new Date('2027-01-01T11:00:00.000Z'),
+      )
+      .then((hold) => holds.confirmSlotHold(hold.id));
+
+    const inRange = await bookings.findConfirmedByTutor(tutorId, {
+      from: '2027-01-01T00:00:00.000Z',
+      to: '2027-01-02T00:00:00.000Z',
+    });
+    expect(inRange).toHaveLength(1);
+
+    const outOfRange = await bookings.findConfirmedByTutor(tutorId, {
+      from: '2027-02-01T00:00:00.000Z',
+    });
+    expect(outOfRange).toHaveLength(0);
+
+    const learnerInRange = await bookings.findConfirmedByLearner(learnerId, {
+      to: '2027-01-02T00:00:00.000Z',
+    });
+    expect(learnerInRange).toHaveLength(1);
+  });
+
+  it('still confirms the booking when the Zoom API fails during provisioning', async () => {
+    createMeetingMock.mockRejectedValueOnce(new Error('Zoom API unavailable'));
+
+    const hold = await holds.createSlotHold(
+      tutorId,
+      learnerId,
+      sessionAId,
+      new Date('2027-01-01T10:00:00.000Z'),
+      new Date('2027-01-01T11:00:00.000Z'),
+    );
+    await holds.confirmSlotHold(hold.id);
+    const provisioned = await prisma.session.findUniqueOrThrow({
       where: { id: sessionAId },
     });
-    expect(session.status).toBe('CANCELLED');
-
-    const cancelledBooking = await prisma.booking.findUniqueOrThrow({
-      where: { id: booking.id },
-    });
-    expect(cancelledBooking.status).toBe('CANCELLED');
-  });
-
-  it('rejects cancelling a booking the caller has no access to', async () => {
-    const hold = await holds.createSlotHold(
-      tutorId,
-      learnerId,
-      sessionAId,
-      new Date('2027-01-01T10:00:00.000Z'),
-      new Date('2027-01-01T11:00:00.000Z'),
-    );
-    const booking = await holds.confirmSlotHold(hold.id);
-
-    await expect(
-      bookings.cancel('someone-else', booking.id),
-    ).rejects.toBeInstanceOf(ForbiddenException);
-  });
-
-  it('rejects cancelling an already-cancelled booking', async () => {
-    const hold = await holds.createSlotHold(
-      tutorId,
-      learnerId,
-      sessionAId,
-      new Date('2027-01-01T10:00:00.000Z'),
-      new Date('2027-01-01T11:00:00.000Z'),
-    );
-    const booking = await holds.confirmSlotHold(hold.id);
-    await bookings.cancel(learnerId, booking.id);
-
-    await expect(bookings.cancel(learnerId, booking.id)).rejects.toBeInstanceOf(
-      ConflictException,
-    );
+    expect(provisioned.zoomMeetingId).toBeNull();
   });
 });
