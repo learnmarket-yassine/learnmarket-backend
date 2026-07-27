@@ -19,15 +19,20 @@ import {
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { LearnRequestsService } from '../services/learn-requests.service';
+import { SavedLearnRequestsService } from '../services/saved-learn-requests.service';
 import { CreateLearnRequestDraftDto } from '../dto/create-draft.dto';
 import { UpdateLearnRequestDto } from '../dto/update-learn-request.dto';
 import { GetLearnRequestsQueryDto } from '../dto/list-learn-requests-query.dto';
+import { ListSavedLearnRequestsQueryDto } from '../dto/list-saved-learn-requests-query.dto';
 import { GetProposalsForRequestQueryDto } from '../dto/get-proposals-for-request-query.dto';
 
 @Controller('learn-requests')
 @UseGuards(RolesGuard)
 export class LearnRequestsController {
-  constructor(private readonly learnRequests: LearnRequestsService) {}
+  constructor(
+    private readonly learnRequests: LearnRequestsService,
+    private readonly savedLearnRequests: SavedLearnRequestsService,
+  ) {}
 
   @Post('draft')
   @Roles(UserRole.LEARNER)
@@ -45,6 +50,18 @@ export class LearnRequestsController {
     @Query() query: GetLearnRequestsQueryDto,
   ) {
     return this.learnRequests.findMany(user, query);
+  }
+
+  // Must be declared before @Get(':id') below -- Nest/Express match routes
+  // in registration order, so "saved" would otherwise be captured as the
+  // :id param and 404 through findOneDetail instead of hitting this route.
+  @Get('saved')
+  @Roles(UserRole.TUTOR)
+  listSaved(
+    @CurrentUser() user: AuthUser,
+    @Query() query: ListSavedLearnRequestsQueryDto,
+  ) {
+    return this.savedLearnRequests.listSaved(user, query.page, query.take);
   }
 
   @Get(':id')

@@ -54,7 +54,11 @@ const PROPOSAL_INCLUDE = {
   },
 } satisfies Prisma.ProposalInclude;
 
-function buildListInclude(user: Pick<AuthUser, 'id' | 'role'>) {
+// Exported so SavedLearnRequestsService can nest the exact same shape under
+// `savedLearnRequest.findMany({ include: { learnRequest: { include: ... } } })`
+// for the Saved tab -- one include definition, reused by both the main feed
+// and the saved list, instead of a second bespoke query shape.
+export function buildListInclude(user: Pick<AuthUser, 'id' | 'role'>) {
   return {
     category: true,
     skills: { include: { skill: true } },
@@ -63,6 +67,13 @@ function buildListInclude(user: Pick<AuthUser, 'id' | 'role'>) {
       orderBy: { createdAt: 'desc' },
       include: PROPOSAL_INCLUDE,
     },
+    // Only a tutor can have saved anything; scoping to their own id turns
+    // "did I save this" into a plain boolean below instead of leaking the
+    // raw join-table rows to the frontend.
+    savedBy:
+      user.role === UserRole.TUTOR
+        ? { where: { tutorId: user.id } }
+        : undefined,
   } satisfies Prisma.LearnRequestInclude;
 }
 
@@ -81,7 +92,7 @@ function buildDetailInclude() {
   } satisfies Prisma.LearnRequestInclude;
 }
 
-type LearnRequestWithRelations = Prisma.LearnRequestGetPayload<{
+export type LearnRequestWithRelations = Prisma.LearnRequestGetPayload<{
   include: ReturnType<typeof buildListInclude>;
 }>;
 
@@ -168,9 +179,17 @@ export class LearnRequestsService {
     ]);
 
     return {
-      paginatedResult: await this.attachActionNeeded(items),
+      paginatedResult: await this.attachDerivedFields(items),
       totalCount,
     };
+  }
+
+  async attachDerivedFields(items: LearnRequestWithRelations[]) {
+    const withActionNeeded = await this.attachActionNeeded(items);
+    return withActionNeeded.map((item) => ({
+      ...item,
+      isSavedByMe: (item.savedBy?.length ?? 0) > 0,
+    }));
   }
 
   async findOneDetail(viewer: AuthUser, id: string) {
