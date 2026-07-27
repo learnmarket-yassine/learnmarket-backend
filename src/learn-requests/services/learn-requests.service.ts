@@ -46,7 +46,6 @@ const PROPOSAL_INCLUDE = {
       languages: true,
       tutorProfile: {
         select: {
-          hourlyRate: true,
           skills: { include: { skill: true } },
           videoIntroUrl: true,
         },

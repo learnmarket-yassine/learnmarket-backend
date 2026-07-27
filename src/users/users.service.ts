@@ -65,8 +65,7 @@ enum TutorOnboardingStep {
   Education = 6,
   Languages = 7,
   Bio = 8,
-  HourlyRate = 9,
-  ContactInfo = 10,
+  ContactInfo = 9,
 }
 
 type ProfileUser = Prisma.UserGetPayload<{ select: typeof PROFILE_SELECT }>;
@@ -123,10 +122,6 @@ const TUTOR_ONBOARDING_STEPS: OnboardingStepDef[] = [
     isComplete: (u) => u.languages.length > 0,
   },
   { step: TutorOnboardingStep.Bio, isComplete: (u) => !!u.bio },
-  {
-    step: TutorOnboardingStep.HourlyRate,
-    isComplete: (u) => u.tutorProfile?.hourlyRate != null,
-  },
   {
     step: TutorOnboardingStep.ContactInfo,
     isComplete: (u) =>
