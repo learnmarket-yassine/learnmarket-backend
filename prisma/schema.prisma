@@ -62,6 +62,7 @@ model User {
   tutorAvailabilityExceptions  TutorAvailabilityException[] @relation("TutorAvailabilityExceptions")
   learnRequests                LearnRequest[]               @relation("LearnerLearnRequests")
   proposals                    Proposal[]                   @relation("TutorProposals")
+  savedLearnRequests           SavedLearnRequest[]          @relation("TutorSavedLearnRequests")
   tutorSlotHolds               SlotHold[]                   @relation("TutorSlotHolds")
   learnerSlotHolds             SlotHold[]                   @relation("LearnerSlotHolds")
   tutorBookings                Booking[]                    @relation("TutorBookings")
@@ -146,10 +147,10 @@ model TutorProfileSpecialty {
 }
 
 model TutorProfile {
-  id            String   @id @default(uuid())
-  userId        String   @unique @map("user_id")
-  videoIntroUrl String?  @map("video_intro_url")
-  isVerified    Boolean  @default(false) @map("is_verified")
+  id            String  @id @default(uuid())
+  userId        String  @unique @map("user_id")
+  videoIntroUrl String? @map("video_intro_url")
+  isVerified    Boolean @default(false) @map("is_verified")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -477,11 +478,27 @@ model LearnRequest {
   proposals Proposal[]
   category  Category?           @relation("CategoryLearnRequests", fields: [categoryId], references: [id], onDelete: SetNull)
   skills    LearnRequestSkill[]
+  savedBy   SavedLearnRequest[]
 
   @@index([learnerId])
   @@index([type])
   @@index([status])
   @@map("learn_requests")
+}
+
+model SavedLearnRequest {
+  id             String   @id @default(uuid())
+  tutorId        String   @map("tutor_id")
+  learnRequestId String   @map("learn_request_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  tutor        User         @relation("TutorSavedLearnRequests", fields: [tutorId], references: [id], onDelete: Cascade)
+  learnRequest LearnRequest @relation(fields: [learnRequestId], references: [id], onDelete: Cascade)
+
+  @@unique([tutorId, learnRequestId])
+  @@index([tutorId])
+  @@index([learnRequestId])
+  @@map("saved_learn_requests")
 }
 
 model LearnRequestSkill {
@@ -571,23 +588,23 @@ enum SessionStatus {
 }
 
 model Session {
-  id            String        @id @default(uuid())
-  proposalId    String        @map("proposal_id")
-  sessionNumber Int           @map("session_number")
-  title         String
-  objective     String?       @db.Text
-  status        SessionStatus @default(LOCKED)
-  zoomMeetingId   String?   @map("zoom_meeting_id")
-  zoomJoinUrl     String?   @map("zoom_join_url")
-  zoomStartUrl    String?   @map("zoom_start_url")
-  zoomPassword    String?   @map("zoom_password")
-  tutorJoinedAt   DateTime? @map("tutor_joined_at")
-  learnerJoinedAt DateTime? @map("learner_joined_at")
+  id              String        @id @default(uuid())
+  proposalId      String        @map("proposal_id")
+  sessionNumber   Int           @map("session_number")
+  title           String
+  objective       String?       @db.Text
+  status          SessionStatus @default(LOCKED)
+  zoomMeetingId   String?       @map("zoom_meeting_id")
+  zoomJoinUrl     String?       @map("zoom_join_url")
+  zoomStartUrl    String?       @map("zoom_start_url")
+  zoomPassword    String?       @map("zoom_password")
+  tutorJoinedAt   DateTime?     @map("tutor_joined_at")
+  learnerJoinedAt DateTime?     @map("learner_joined_at")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  proposal      Proposal            @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  proposal      Proposal       @relation(fields: [proposalId], references: [id], onDelete: Cascade)
   slotHold      SlotHold?
   booking       Booking?
   announcements Announcement[]
