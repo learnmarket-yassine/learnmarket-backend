@@ -148,8 +148,6 @@ model TutorProfileSpecialty {
 model TutorProfile {
   id            String   @id @default(uuid())
   userId        String   @unique @map("user_id")
-  hourlyRate    Decimal? @map("hourly_rate") @db.Decimal(10, 2)
-  hoursPerWeek  String?  @map("hours_per_week")
   videoIntroUrl String?  @map("video_intro_url")
   isVerified    Boolean  @default(false) @map("is_verified")
 

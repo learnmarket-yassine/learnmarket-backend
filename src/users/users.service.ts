@@ -44,6 +44,7 @@ const PROFILE_SELECT = {
   languages: true,
   tutorProfile: { include: TUTOR_PROFILE_INCLUDE },
   learnerProfile: { include: LEARNER_PROFILE_INCLUDE },
+  tutorAvailabilityRules: true,
 } as const;
 
 enum LearnerOnboardingStep {
@@ -64,8 +65,8 @@ enum TutorOnboardingStep {
   // Experience = 5 — intentionally NOT a tracked step below (see comment).
   Education = 6,
   Languages = 7,
-  Bio = 8,
-  HourlyRate = 9,
+  Availability = 8,
+  Bio = 9,
   ContactInfo = 10,
 }
 
@@ -122,11 +123,11 @@ const TUTOR_ONBOARDING_STEPS: OnboardingStepDef[] = [
     step: TutorOnboardingStep.Languages,
     isComplete: (u) => u.languages.length > 0,
   },
-  { step: TutorOnboardingStep.Bio, isComplete: (u) => !!u.bio },
   {
-    step: TutorOnboardingStep.HourlyRate,
-    isComplete: (u) => u.tutorProfile?.hourlyRate != null,
+    step: TutorOnboardingStep.Availability,
+    isComplete: (u) => u.tutorAvailabilityRules.length > 0,
   },
+  { step: TutorOnboardingStep.Bio, isComplete: (u) => !!u.bio },
   {
     step: TutorOnboardingStep.ContactInfo,
     isComplete: (u) =>
