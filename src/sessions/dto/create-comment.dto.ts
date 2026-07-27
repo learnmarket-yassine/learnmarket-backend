@@ -10,3 +10,5 @@ export class CreateCommentDto {
   @MaxLength(MAX_COMMENT_LENGTH)
   content!: string;
 }
+
+export class UpdateCommentDto extends CreateCommentDto {}

@@ -11,7 +11,7 @@ import {
 } from '@nestjs/common';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { CreateAnnouncementDto } from '../dto/create-announcement.dto';
-import { CreateCommentDto } from '../dto/create-comment.dto';
+import { CreateCommentDto, UpdateCommentDto } from '../dto/create-comment.dto';
 import { UpdateAnnouncementDto } from '../dto/update-announcement.dto';
 import { AnnouncementsService } from '../services/announcements.service';
 
@@ -66,5 +66,23 @@ export class AnnouncementsController {
     @Body() dto: CreateCommentDto,
   ) {
     return this.announcements.addComment(userId, id, dto);
+  }
+
+  @Patch('announcements/comments/:commentId')
+  updateComment(
+    @CurrentUser('id') userId: string,
+    @Param('commentId') commentId: string,
+    @Body() dto: UpdateCommentDto,
+  ) {
+    return this.announcements.updateComment(userId, commentId, dto);
+  }
+
+  @Delete('announcements/comments/:commentId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  removeComment(
+    @CurrentUser('id') userId: string,
+    @Param('commentId') commentId: string,
+  ) {
+    return this.announcements.removeComment(userId, commentId);
   }
 }

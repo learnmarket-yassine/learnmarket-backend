@@ -12,7 +12,7 @@ import {
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AttachFileDto } from '../../storage/dto/attach-file.dto';
 import { CreateAssignmentDto } from '../dto/create-assignment.dto';
-import { CreateCommentDto } from '../dto/create-comment.dto';
+import { CreateCommentDto, UpdateCommentDto } from '../dto/create-comment.dto';
 import { PresignSubmissionAttachmentDto } from '../dto/presign-submission-attachment.dto';
 import { UpdateAssignmentDto } from '../dto/update-assignment.dto';
 import { AssignmentsService } from '../services/assignments.service';
@@ -43,6 +43,12 @@ export class AssignmentsController {
     @Body() dto: UpdateAssignmentDto,
   ) {
     return this.assignments.update(userId, id, dto);
+  }
+
+  @Delete('sessions/:id/assignment')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  remove(@CurrentUser('id') userId: string, @Param('id') id: string) {
+    return this.assignments.remove(userId, id);
   }
 
   @Get('assignments/:id/attachments/:attachmentId/url')
@@ -118,5 +124,23 @@ export class AssignmentsController {
     @Body() dto: CreateCommentDto,
   ) {
     return this.assignments.addComment(userId, id, dto);
+  }
+
+  @Patch('assignments/comments/:commentId')
+  updateComment(
+    @CurrentUser('id') userId: string,
+    @Param('commentId') commentId: string,
+    @Body() dto: UpdateCommentDto,
+  ) {
+    return this.assignments.updateComment(userId, commentId, dto);
+  }
+
+  @Delete('assignments/comments/:commentId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  removeComment(
+    @CurrentUser('id') userId: string,
+    @Param('commentId') commentId: string,
+  ) {
+    return this.assignments.removeComment(userId, commentId);
   }
 }

@@ -16,7 +16,12 @@ const JOIN_WINDOW_BEFORE_MS = 15 * 60_000;
 const JOIN_GRACE_AFTER_MS = 30 * 60_000;
 
 const SESSION_WITH_PARTICIPANTS = {
-  proposal: { include: { learnRequest: true } },
+  proposal: {
+    include: {
+      learnRequest: true,
+      tutor: { select: { firstname: true, lastname: true } },
+    },
+  },
   booking: true,
 } as const;
 
@@ -62,6 +67,10 @@ export class SessionsService {
       objective: session.objective,
       status: session.status,
       isTutor: this.isTutor(session, userId),
+      tutor: {
+        firstname: session.proposal.tutor.firstname,
+        lastname: session.proposal.tutor.lastname,
+      },
       tutorJoinedAt: session.tutorJoinedAt,
       learnerJoinedAt: session.learnerJoinedAt,
       booking: session.booking

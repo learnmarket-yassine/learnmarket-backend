@@ -7,7 +7,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { UploadPurpose } from '../../storage/upload-purpose.enum';
 import { UploadService } from '../../storage/upload.service';
 import { CreateAnnouncementDto } from '../dto/create-announcement.dto';
-import { CreateCommentDto } from '../dto/create-comment.dto';
+import { CreateCommentDto, UpdateCommentDto } from '../dto/create-comment.dto';
 import { UpdateAnnouncementDto } from '../dto/update-announcement.dto';
 import { SessionsService } from './sessions.service';
 
@@ -168,5 +168,34 @@ export class AnnouncementsService {
       },
       include: { author: { select: AUTHOR_SELECT } },
     });
+  }
+
+  private async findCommentOwnedByAuthor(userId: string, commentId: string) {
+    const comment = await this.prisma.announcementComment.findUnique({
+      where: { id: commentId },
+    });
+    if (!comment) throw new NotFoundException('Comment not found');
+    if (comment.authorId !== userId) {
+      throw new ForbiddenException('You can only edit your own comments');
+    }
+    return comment;
+  }
+
+  async updateComment(
+    userId: string,
+    commentId: string,
+    dto: UpdateCommentDto,
+  ) {
+    await this.findCommentOwnedByAuthor(userId, commentId);
+    return this.prisma.announcementComment.update({
+      where: { id: commentId },
+      data: { content: dto.content },
+      include: { author: { select: AUTHOR_SELECT } },
+    });
+  }
+
+  async removeComment(userId: string, commentId: string) {
+    await this.findCommentOwnedByAuthor(userId, commentId);
+    await this.prisma.announcementComment.delete({ where: { id: commentId } });
   }
 }

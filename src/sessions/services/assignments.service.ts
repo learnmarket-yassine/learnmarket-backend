@@ -10,7 +10,7 @@ import { AttachFileDto } from '../../storage/dto/attach-file.dto';
 import { UploadPurpose } from '../../storage/upload-purpose.enum';
 import { UploadService } from '../../storage/upload.service';
 import { CreateAssignmentDto } from '../dto/create-assignment.dto';
-import { CreateCommentDto } from '../dto/create-comment.dto';
+import { CreateCommentDto, UpdateCommentDto } from '../dto/create-comment.dto';
 import { PresignSubmissionAttachmentDto } from '../dto/presign-submission-attachment.dto';
 import { UpdateAssignmentDto } from '../dto/update-assignment.dto';
 import { SessionsService } from './sessions.service';
@@ -176,6 +176,32 @@ export class AssignmentsService {
       },
       include: ASSIGNMENT_INCLUDE,
     });
+  }
+
+  async remove(tutorId: string, sessionId: string) {
+    const session = await this.sessions.assertParticipant(tutorId, sessionId);
+    if (!this.sessions.isTutor(session, tutorId)) {
+      throw new ForbiddenException('Only the tutor can delete this assignment');
+    }
+
+    const assignment = await this.prisma.assignment.findUnique({
+      where: { sessionId },
+      include: { submission: { include: { attachments: true } }, attachments: true },
+    });
+    if (!assignment) throw new NotFoundException('Assignment not found');
+
+    if ((assignment.submission?.attachments.length ?? 0) > 0) {
+      throw new ConflictException(
+        'This assignment can no longer be deleted once the learner has added files',
+      );
+    }
+
+    await this.prisma.assignment.delete({ where: { sessionId } });
+    await Promise.all(
+      assignment.attachments.map((attachment) =>
+        this.uploadService.deleteIfPresent(attachment.key),
+      ),
+    );
   }
 
   async presignSubmissionAttachment(
@@ -360,5 +386,34 @@ export class AssignmentsService {
       },
       include: { author: { select: AUTHOR_SELECT } },
     });
+  }
+
+  private async findCommentOwnedByAuthor(userId: string, commentId: string) {
+    const comment = await this.prisma.assignmentComment.findUnique({
+      where: { id: commentId },
+    });
+    if (!comment) throw new NotFoundException('Comment not found');
+    if (comment.authorId !== userId) {
+      throw new ForbiddenException('You can only edit your own comments');
+    }
+    return comment;
+  }
+
+  async updateComment(
+    userId: string,
+    commentId: string,
+    dto: UpdateCommentDto,
+  ) {
+    await this.findCommentOwnedByAuthor(userId, commentId);
+    return this.prisma.assignmentComment.update({
+      where: { id: commentId },
+      data: { content: dto.content },
+      include: { author: { select: AUTHOR_SELECT } },
+    });
+  }
+
+  async removeComment(userId: string, commentId: string) {
+    await this.findCommentOwnedByAuthor(userId, commentId);
+    await this.prisma.assignmentComment.delete({ where: { id: commentId } });
   }
 }
