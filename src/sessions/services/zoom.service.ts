@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 const ZOOM_OAUTH_URL = 'https://zoom.us/oauth/token';
@@ -17,7 +17,6 @@ export interface ZoomMeeting {
 
 @Injectable()
 export class ZoomService {
-  private readonly logger = new Logger(ZoomService.name);
   private cachedToken: { token: string; expiresAt: number } | null = null;
 
   constructor(private readonly config: ConfigService) {}
@@ -90,25 +89,27 @@ export class ZoomService {
     return (await response.json()) as ZoomMeeting;
   }
 
-  async deleteMeeting(zoomMeetingId: string): Promise<void> {
-    try {
-      const token = await this.getAccessToken();
-      const response = await fetch(
-        `${ZOOM_API_BASE}/meetings/${zoomMeetingId}`,
-        {
-          method: 'DELETE',
-          headers: { Authorization: `Bearer ${token}` },
-        },
+  async updateMeetingTime(
+    zoomMeetingId: string,
+    startTime: Date,
+    durationMinutes: number,
+  ): Promise<void> {
+    const token = await this.getAccessToken();
+    const response = await fetch(`${ZOOM_API_BASE}/meetings/${zoomMeetingId}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        start_time: startTime.toISOString(),
+        duration: durationMinutes,
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Zoom update-meeting-time request failed with status ${response.status}`,
       );
-      // 404 is expected if the meeting was already removed from the Zoom
-      // dashboard -- not a failure from this caller's perspective.
-      if (!response.ok && response.status !== 404) {
-        throw new Error(
-          `Zoom delete-meeting request failed with status ${response.status}`,
-        );
-      }
-    } catch (err) {
-      this.logger.error('Zoom meeting deletion failed', err);
     }
   }
 }

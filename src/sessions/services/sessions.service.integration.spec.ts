@@ -37,7 +37,7 @@ describe('SessionsService (integration, real DB)', () => {
         SessionsService,
         {
           provide: ZoomService,
-          useValue: { createMeeting: createMeetingMock, deleteMeeting: jest.fn() },
+          useValue: { createMeeting: createMeetingMock },
         },
         { provide: UploadService, useValue: {} },
         {
@@ -277,28 +277,6 @@ describe('SessionsService (integration, real DB)', () => {
       await expect(
         sessions.retryMeeting(learnerId, sessionId),
       ).rejects.toBeInstanceOf(NotFoundException);
-    });
-  });
-
-  describe('deprovisionMeeting', () => {
-    it('does nothing and does not throw when no meeting exists', async () => {
-      await expect(
-        sessions.deprovisionMeeting(sessionId),
-      ).resolves.toBeUndefined();
-    });
-
-    it('clears the zoom fields once a meeting existed', async () => {
-      await sessions.provisionMeeting(sessionId);
-
-      await sessions.deprovisionMeeting(sessionId);
-
-      const session = await prisma.session.findUniqueOrThrow({
-        where: { id: sessionId },
-      });
-      expect(session.zoomMeetingId).toBeNull();
-      expect(session.zoomJoinUrl).toBeNull();
-      expect(session.zoomStartUrl).toBeNull();
-      expect(session.zoomPassword).toBeNull();
     });
   });
 

@@ -143,52 +143,79 @@ export class HoldsService {
     if (!hold) throw new NotFoundException('Slot hold not found');
 
     let booking: Booking;
+    let isReschedule: boolean;
     try {
-      booking = await this.prisma.$transaction(async (tx) => {
-        const result = await tx.slotHold.updateMany({
-          where: {
-            id: slotHoldId,
-            status: 'ACTIVE',
-            expiresAt: { gt: new Date() },
-          },
-          data: { status: 'CONVERTED' },
-        });
-        if (result.count === 0) {
-          throw new GoneException('This hold has expired');
-        }
+      ({ booking, isReschedule } = await this.prisma.$transaction(
+        async (tx) => {
+          const result = await tx.slotHold.updateMany({
+            where: {
+              id: slotHoldId,
+              status: 'ACTIVE',
+              expiresAt: { gt: new Date() },
+            },
+            data: { status: 'CONVERTED' },
+          });
+          if (result.count === 0) {
+            throw new GoneException('This hold has expired');
+          }
 
-        const created = await tx.booking.create({
-          data: {
-            tutorId: hold.tutorId,
-            learnerId: hold.learnerId,
-            sessionId: hold.sessionId,
-            slotHoldId: hold.id,
-            startTime: hold.startTime,
-            endTime: hold.endTime,
-            status: 'CONFIRMED',
-          },
-        });
+          // Booking.sessionId is @unique -- a rescheduled session already has
+          // a (CANCELLED) Booking row for it, from the reschedule endpoint.
+          // Revive that same row rather than inserting a second one.
+          const existingBooking = await tx.booking.findUnique({
+            where: { sessionId: hold.sessionId },
+          });
 
-        await tx.session.update({
-          where: { id: hold.sessionId },
-          data: { status: SessionStatus.BOOKED },
-        });
+          const created = existingBooking
+            ? await tx.booking.update({
+                where: { id: existingBooking.id },
+                data: {
+                  tutorId: hold.tutorId,
+                  learnerId: hold.learnerId,
+                  slotHoldId: hold.id,
+                  startTime: hold.startTime,
+                  endTime: hold.endTime,
+                  status: 'CONFIRMED',
+                },
+              })
+            : await tx.booking.create({
+                data: {
+                  tutorId: hold.tutorId,
+                  learnerId: hold.learnerId,
+                  sessionId: hold.sessionId,
+                  slotHoldId: hold.id,
+                  startTime: hold.startTime,
+                  endTime: hold.endTime,
+                  status: 'CONFIRMED',
+                },
+              });
 
-        return created;
-      });
+          await tx.session.update({
+            where: { id: hold.sessionId },
+            data: { status: SessionStatus.BOOKED },
+          });
+
+          return { booking: created, isReschedule: !!existingBooking };
+        },
+      ));
     } catch (error) {
       if (error instanceof GoneException) throw error;
       this.handleOverlapError(error, 'no_overlapping_confirmed_bookings');
     }
 
-    // Zoom meeting provisioning happens outside the transaction and must
+    // Zoom provisioning/update happens outside the transaction and must
     // never block a booking that has already been confirmed -- a Zoom
     // outage degrades to "session shows not_provisioned, tutor can retry",
-    // not a failed booking. provisionMeeting already swallows its own
-    // errors; this try/catch is defense-in-depth around the DB update it
-    // performs.
+    // not a failed booking. Both calls already swallow their own errors;
+    // this try/catch is defense-in-depth around the DB update they perform.
     try {
-      await this.sessionsService.provisionMeeting(booking.sessionId!);
+      if (isReschedule) {
+        // Same Zoom meeting, new time -- provisionMeeting would no-op here
+        // since zoomJoinUrl is already set.
+        await this.sessionsService.updateMeetingTime(booking.sessionId!);
+      } else {
+        await this.sessionsService.provisionMeeting(booking.sessionId!);
+      }
     } catch (err) {
       this.logger.error('Zoom meeting provisioning failed', err);
     }

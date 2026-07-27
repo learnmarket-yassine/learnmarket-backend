@@ -1,11 +1,4 @@
-import {
-  Controller,
-  Get,
-  Param,
-  Patch,
-  Query,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
@@ -30,8 +23,8 @@ export class BookingsController {
       : this.bookings.findConfirmedByLearner(user.id, query);
   }
 
-  @Patch(':id/cancel')
-  cancel(@CurrentUser('id') userId: string, @Param('id') id: string) {
-    return this.bookings.cancel(userId, id);
+  @Post(':id/reschedule')
+  reschedule(@CurrentUser('id') userId: string, @Param('id') id: string) {
+    return this.bookings.rescheduleBooking(userId, id);
   }
 }

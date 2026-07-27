@@ -75,6 +75,8 @@ export class SessionsService {
       learnerJoinedAt: session.learnerJoinedAt,
       booking: session.booking
         ? {
+            id: session.booking.id,
+            status: session.booking.status,
             startTime: session.booking.startTime,
             endTime: session.booking.endTime,
           }
@@ -111,6 +113,29 @@ export class SessionsService {
       });
     } catch (err) {
       this.logger.error('Zoom meeting provisioning failed', err);
+    }
+  }
+
+  async updateMeetingTime(sessionId: string): Promise<void> {
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      include: { booking: true },
+    });
+    if (!session?.zoomMeetingId || !session.booking) return;
+
+    try {
+      const durationMinutes = Math.round(
+        (session.booking.endTime.getTime() -
+          session.booking.startTime.getTime()) /
+          60_000,
+      );
+      await this.zoomService.updateMeetingTime(
+        session.zoomMeetingId,
+        session.booking.startTime,
+        durationMinutes,
+      );
+    } catch (err) {
+      this.logger.error('Zoom meeting time update failed', err);
     }
   }
 
@@ -164,29 +189,6 @@ export class SessionsService {
       now <= booking.endTime.getTime() + JOIN_GRACE_AFTER_MS
     );
   }
-  async deprovisionMeeting(sessionId: string): Promise<void> {
-    try {
-      const session = await this.prisma.session.findUnique({
-        where: { id: sessionId },
-        select: { zoomMeetingId: true },
-      });
-      if (!session?.zoomMeetingId) return;
-
-      await this.zoomService.deleteMeeting(session.zoomMeetingId);
-      await this.prisma.session.update({
-        where: { id: sessionId },
-        data: {
-          zoomMeetingId: null,
-          zoomJoinUrl: null,
-          zoomStartUrl: null,
-          zoomPassword: null,
-        },
-      });
-    } catch (err) {
-      this.logger.error('Zoom meeting cleanup failed', err);
-    }
-  }
-
   async join(userId: string, sessionId: string): Promise<{ joined: true }> {
     const session = await this.assertParticipant(userId, sessionId);
     const now = new Date();

@@ -24,8 +24,8 @@ import { ZoomService } from './services/zoom.service';
     AnnouncementsController,
     AssignmentsController,
   ],
-  // Exported for HoldsService (provisionMeeting after booking confirmation)
-  // and BookingsService (deprovisionMeeting after cancellation).
+  // Exported for HoldsService (provisionMeeting/updateMeetingTime after
+  // booking confirmation).
   exports: [SessionsService],
 })
 export class SessionsModule {}
