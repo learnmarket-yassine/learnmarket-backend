@@ -8,6 +8,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   UseGuards,
 } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
@@ -16,6 +17,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { CreateRuleDto } from '../dto/rules/create-rule.dto';
 import { UpdateRuleDto } from '../dto/rules/update-rule.dto';
+import { UpdateRulesDiffDto } from '../dto/rules/update-rules-diff.dto';
 import { TutorAvailabilityRulesService } from '../services/tutor-availability-rules.service';
 
 @Controller('tutor/availability/rules')
@@ -33,6 +35,14 @@ export class TutorAvailabilityRulesController {
   @Get()
   findAll(@CurrentUser('id') tutorId: string) {
     return this.rules.findAll(tutorId);
+  }
+
+  @Put()
+  applyDiff(
+    @CurrentUser('id') tutorId: string,
+    @Body() dto: UpdateRulesDiffDto,
+  ) {
+    return this.rules.applyDiff(tutorId, dto);
   }
 
   @Patch(':id')
