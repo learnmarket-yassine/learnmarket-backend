@@ -77,6 +77,24 @@ export function buildListInclude(user: Pick<AuthUser, 'id' | 'role'>) {
   } satisfies Prisma.LearnRequestInclude;
 }
 
+// Only the owning learner can have shortlisted anything on their own
+// request; a tutor viewing their own proposal here has no reason to see
+// shortlist state, so the include is skipped for them entirely rather than
+// always resolving to false.
+function buildProposalListInclude(user: Pick<AuthUser, 'id' | 'role'>) {
+  return {
+    ...PROPOSAL_INCLUDE,
+    shortlistedBy:
+      user.role === UserRole.LEARNER
+        ? { where: { learnerId: user.id } }
+        : undefined,
+  } satisfies Prisma.ProposalInclude;
+}
+
+type ProposalWithShortlist = Prisma.ProposalGetPayload<{
+  include: ReturnType<typeof buildProposalListInclude>;
+}>;
+
 function buildDetailInclude() {
   return {
     category: true,
@@ -253,12 +271,20 @@ export class LearnRequestsService {
         skip: query.page * query.take,
         take: query.take,
         orderBy: { createdAt: 'desc' },
-        include: PROPOSAL_INCLUDE,
+        include: buildProposalListInclude(user),
       }),
       this.prisma.proposal.count({ where: proposalWhere }),
     ]);
 
-    return { paginatedResult: items, totalCount };
+    return {
+      paginatedResult: (items as ProposalWithShortlist[]).map(
+        ({ shortlistedBy, ...item }) => ({
+          ...item,
+          isShortlisted: (shortlistedBy?.length ?? 0) > 0,
+        }),
+      ),
+      totalCount,
+    };
   }
 
   async update(learnerId: string, id: string, dto: UpdateLearnRequestDto) {

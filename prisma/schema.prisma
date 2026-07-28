@@ -63,6 +63,7 @@ model User {
   learnRequests                LearnRequest[]               @relation("LearnerLearnRequests")
   proposals                    Proposal[]                   @relation("TutorProposals")
   savedLearnRequests           SavedLearnRequest[]          @relation("TutorSavedLearnRequests")
+  shortlistedProposals         ShortlistedProposal[]        @relation("LearnerShortlistedProposals")
   tutorSlotHolds               SlotHold[]                   @relation("TutorSlotHolds")
   learnerSlotHolds             SlotHold[]                   @relation("LearnerSlotHolds")
   tutorBookings                Booking[]                    @relation("TutorBookings")
@@ -548,15 +549,31 @@ model Proposal {
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
-  learnRequest LearnRequest      @relation(fields: [learnRequestId], references: [id], onDelete: Cascade)
-  tutor        User              @relation("TutorProposals", fields: [tutorId], references: [id], onDelete: Cascade)
-  sessionPlans ProposalSession[] // the pitch -- exists only while PENDING
-  sessions     Session[] // the real thing -- exists only once ACCEPTED
+  learnRequest  LearnRequest          @relation(fields: [learnRequestId], references: [id], onDelete: Cascade)
+  tutor         User                  @relation("TutorProposals", fields: [tutorId], references: [id], onDelete: Cascade)
+  sessionPlans  ProposalSession[] // the pitch -- exists only while PENDING
+  sessions      Session[] // the real thing -- exists only once ACCEPTED
+  shortlistedBy ShortlistedProposal[]
 
   @@index([tutorId])
   @@index([status])
   @@index([learnRequestId, status])
   @@map("proposals")
+}
+
+model ShortlistedProposal {
+  id         String   @id @default(uuid())
+  learnerId  String   @map("learner_id")
+  proposalId String   @map("proposal_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  learner  User     @relation("LearnerShortlistedProposals", fields: [learnerId], references: [id], onDelete: Cascade)
+  proposal Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+
+  @@unique([learnerId, proposalId])
+  @@index([learnerId])
+  @@index([proposalId])
+  @@map("shortlisted_proposals")
 }
 
 model ProposalSession {
