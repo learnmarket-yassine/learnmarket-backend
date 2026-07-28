@@ -48,6 +48,7 @@ const PROPOSAL_INCLUDE = {
         select: {
           skills: { include: { skill: true } },
           videoIntroUrl: true,
+          verificationStatus: true,
         },
       },
     },

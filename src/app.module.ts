@@ -24,6 +24,7 @@ import { HoldsModule } from './holds/holds.module';
 import { BookingsModule } from './bookings/bookings.module';
 import { MessagingModule } from './messaging/messaging.module';
 import { SessionsModule } from './sessions/sessions.module';
+import { TutorVerificationModule } from './tutor-verification/tutor-verification.module';
 
 @Module({
   imports: [
@@ -52,6 +53,7 @@ import { SessionsModule } from './sessions/sessions.module';
     BookingsModule,
     MessagingModule,
     SessionsModule,
+    TutorVerificationModule,
   ],
   controllers: [AppController],
   providers: [
