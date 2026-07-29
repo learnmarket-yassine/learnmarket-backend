@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
-import { SentryGlobalFilter } from '@sentry/nestjs/setup';
 import { ConfigModule } from '@nestjs/config';
+import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { UsersModule } from './users/users.module';
@@ -59,7 +59,7 @@ import { TutorVerificationModule } from './tutor-verification/tutor-verification
   providers: [
     {
       provide: APP_FILTER,
-      useClass: SentryGlobalFilter,
+      useClass: AllExceptionsFilter,
     },
     // Protect every route by default; opt out per-route with @Public().
     { provide: APP_GUARD, useClass: JwtAuthGuard },

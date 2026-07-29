@@ -11,6 +11,17 @@ export class BookingsCompletionCron {
 
   @Cron(CronExpression.EVERY_30_MINUTES)
   async completeFinishedBookings(): Promise<void> {
+    try {
+      await this.run();
+    } catch (error) {
+      this.logger.error(
+        'completeFinishedBookings failed',
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+  }
+
+  private async run(): Promise<void> {
     const dueBookings = await this.prisma.booking.findMany({
       where: { status: 'CONFIRMED', endTime: { lt: new Date() } },
       include: {

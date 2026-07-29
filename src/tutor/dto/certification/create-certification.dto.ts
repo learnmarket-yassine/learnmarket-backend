@@ -1,5 +1,6 @@
+import { Type } from 'class-transformer';
 import {
-  IsDateString,
+  IsDate,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -19,12 +20,14 @@ export class CreateCertificationDto {
   issuer!: string;
 
   @IsOptional()
-  @IsDateString()
-  issuedAt?: string;
+  @Type(() => Date)
+  @IsDate()
+  issuedAt?: Date;
 
   @IsOptional()
-  @IsDateString()
-  expiresAt?: string;
+  @Type(() => Date)
+  @IsDate()
+  expiresAt?: Date;
 
   @IsOptional()
   @IsUrl()

@@ -18,6 +18,17 @@ export class HoldsCleanupCron {
 
   @Cron('0 0 * * * *')
   async expireStaleHolds(): Promise<void> {
+    try {
+      await this.run();
+    } catch (error) {
+      this.logger.error(
+        'expireStaleHolds failed',
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+  }
+
+  private async run(): Promise<void> {
     const stale = await this.prisma.slotHold.findMany({
       where: { status: 'ACTIVE', expiresAt: { lte: new Date() } },
       select: { id: true, sessionId: true },

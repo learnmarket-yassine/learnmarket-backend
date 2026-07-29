@@ -8,8 +8,6 @@ import { TutorVerificationStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ListVerificationsQueryDto } from '../dto/list-verifications-query.dto';
 
-// Shared across the queue row and the detail screen so the two responses
-// describe the same tutor consistently.
 const VERIFICATION_QUEUE_USER_SELECT = {
   id: true,
   firstname: true,
@@ -24,10 +22,6 @@ const VERIFICATION_DETAIL_INCLUDE = {
   },
   specialties: { include: { specialty: { include: { category: true } } } },
   skills: { include: { skill: true } },
-  // Certification file keys are never returned directly -- only metadata.
-  // The admin fetches a short-lived signed URL per file on demand via
-  // TutorVerificationService.getCertificationFileUrl, the same
-  // access-on-demand pattern the tutor's own certification endpoints use.
   certifications: {
     select: {
       id: true,
@@ -65,8 +59,6 @@ export class TutorVerificationService {
     if (profile.verificationStatus === TutorVerificationStatus.PENDING) {
       throw new ConflictException('Your profile is already under review');
     }
-    // Valid starting states reaching here: UNSUBMITTED, REJECTED, REVOKED.
-
     const missing: string[] = [];
     if (!profile.user.bio?.trim()) missing.push('a bio');
     if (profile.specialties.length === 0) {
@@ -81,11 +73,6 @@ export class TutorVerificationService {
       );
     }
 
-    // Deliberately does NOT clear reviewedBy/reviewedAt/reviewNote here --
-    // if this submission follows a rejection, the tutor should still be
-    // able to see their previous rejection reason as context while the new
-    // review is pending. It's overwritten only when the admin makes their
-    // next actual decision (approve/reject/revoke below).
     return this.prisma.tutorProfile.update({
       where: { userId: tutorId },
       data: {
@@ -97,9 +84,6 @@ export class TutorVerificationService {
 
   async approve(adminId: string, tutorId: string) {
     const result = await this.prisma.tutorProfile.updateMany({
-      // The status condition in the where clause is what closes the race:
-      // if another admin already acted, this matches zero rows instead of
-      // overwriting their decision.
       where: {
         userId: tutorId,
         verificationStatus: TutorVerificationStatus.PENDING,
@@ -168,7 +152,7 @@ export class TutorVerificationService {
     const [items, totalCount] = await this.prisma.$transaction([
       this.prisma.tutorProfile.findMany({
         where: { verificationStatus: TutorVerificationStatus.PENDING },
-        orderBy: { submittedAt: 'asc' }, // oldest first -- first submitted, first reviewed
+        orderBy: { submittedAt: 'asc' },
         skip: page * take,
         take,
         include: { user: { select: VERIFICATION_QUEUE_USER_SELECT } },
