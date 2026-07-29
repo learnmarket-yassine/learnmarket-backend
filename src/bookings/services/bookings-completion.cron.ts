@@ -13,7 +13,7 @@ export class BookingsCompletionCron {
     private readonly payoutsService: PayoutsService,
   ) {}
 
-  @Cron(CronExpression.EVERY_30_MINUTES)
+  @Cron(CronExpression.EVERY_MINUTE)
   async completeFinishedBookings(): Promise<void> {
     try {
       await this.run();

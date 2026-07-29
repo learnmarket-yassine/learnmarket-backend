@@ -24,11 +24,6 @@ export class StripeService {
         type: 'express',
         email,
         capabilities: { transfers: { requested: true } },
-        // Default automatic payout schedule (Stripe's standard behavior) is
-        // intentionally left as-is -- no wallet/manual-withdrawal feature
-        // exists in this build, so there's no reason to override it to
-        // manual. Money reaches the tutor's real bank account on Stripe's
-        // normal schedule once transferred to their Connect balance.
       },
       { idempotencyKey: `connect-account-${tutorId}` },
     );
@@ -56,12 +51,8 @@ export class StripeService {
       {
         amount: amountCents,
         currency,
-        // critical -- this is how the webhook handler maps a Stripe event
-        // back to a specific Proposal/Payment
         metadata: { proposalId },
       },
-      // scoped to proposalId specifically -- a retried "Hire" click for the
-      // SAME proposal must not create a second PaymentIntent
       { idempotencyKey: `payment-intent-${proposalId}` },
     );
   }
@@ -79,9 +70,6 @@ export class StripeService {
         destination: stripeAccountId,
         metadata: { payoutId },
       },
-      // scoped to payoutId -- if a cron run somehow overlaps or retries for
-      // the same session, this key guarantees Stripe itself rejects the
-      // duplicate rather than double-paying the tutor
       { idempotencyKey: `transfer-${payoutId}` },
     );
   }
@@ -101,9 +89,6 @@ export class StripeService {
   }
 
   constructWebhookEvent(payload: Buffer, signature: string): Stripe.Event {
-    // Throws on an invalid/missing signature -- callers must never catch and
-    // swallow this. An unverified webhook is a direct financial forgery
-    // vector.
     return this.stripe.webhooks.constructEvent(
       payload,
       signature,

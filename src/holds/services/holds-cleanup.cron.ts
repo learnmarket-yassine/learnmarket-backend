@@ -2,14 +2,6 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma/prisma.service';
 
-/**
- * Backstop for the per-tutor stale-hold cleanup that already runs
- * transactionally inside `HoldsService.createSlotHold`. Not required for
- * correctness (the exclusion constraint + transactional cleanup already
- * guarantee no double-booking) — this just limits how long an expired hold
- * lingers with a misleading ACTIVE status for anything querying the table
- * directly.
- */
 @Injectable()
 export class HoldsCleanupCron {
   private readonly logger = new Logger(HoldsCleanupCron.name);
@@ -40,8 +32,6 @@ export class HoldsCleanupCron {
         where: { id: { in: stale.map((hold) => hold.id) } },
         data: { status: 'EXPIRED' },
       }),
-      // These sessions were left at HELD by the hold that just expired --
-      // unwind them back to schedulable, same as releaseSlotHold does.
       this.prisma.session.updateMany({
         where: {
           id: { in: stale.map((hold) => hold.sessionId) },

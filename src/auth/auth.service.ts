@@ -102,11 +102,6 @@ export class AuthService {
     return this.issueTokens(user, resolvedDeviceId, deviceName);
   }
 
-  // ---------------------------------------------------------------------------
-  // Access token verification — same secret/payload shape as JwtStrategy's
-  // passport validation, so REST (via the strategy) and sockets (via this
-  // method, called from the handshake) trust the exact same token.
-  // ---------------------------------------------------------------------------
   verifyAccessToken(token: string): AuthUser {
     const payload = this.jwtService.verify<AccessTokenPayload>(token, {
       secret: this.config.get<string>('JWT_ACCESS_SECRET'),

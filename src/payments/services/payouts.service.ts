@@ -27,12 +27,6 @@ export class PayoutsService {
     private readonly stripe: StripeService,
   ) {}
 
-  /**
-   * Called from inside the session-completion cron's per-booking
-   * transaction, right after a Session flips to COMPLETED. Only ever
-   * records the DB-side "intent to pay" here -- the actual Stripe Transfer
-   * call happens afterward, outside any transaction (see releasePayout).
-   */
   async recordPayoutForCompletedSession(
     tx: Prisma.TransactionClient,
     session: Session,
@@ -40,9 +34,6 @@ export class PayoutsService {
     payment: Payment,
   ): Promise<PayoutTrigger | null> {
     if (!session.tutorJoinedAt) {
-      // No-show guard: the tutor never actually joined per the Session
-      // module's join-tracking. Do NOT auto-pay -- held for manual admin
-      // review (no resolution UI in this phase).
       await tx.payout.create({
         data: {
           paymentId: payment.id,
@@ -55,10 +46,6 @@ export class PayoutsService {
       return null;
     }
 
-    // CRITICAL: proposal.totalPrice is the LEARNER-FACING, fee-inclusive
-    // amount. Paying that out in full would send the tutor the platform's
-    // own fee too. Payout math must always run against the de-inflated
-    // tutor share.
     const tutorEarnedTotal = new Prisma.Decimal(
       getFeeBreakdown(new Prisma.Decimal(proposal.totalPrice).toNumber())
         .tutorTotal,
@@ -109,14 +96,6 @@ export class PayoutsService {
     return { payoutId: payout.id, shouldRelease: enabled };
   }
 
-  /**
-   * Makes the real Stripe Transfer call. Never call this from inside a
-   * Prisma transaction -- see payments module plan §3. Idempotent: safe to
-   * call repeatedly for the same payoutId (via the reconciliation cron, a
-   * retried onboarding sync, etc) because the Transfer's idempotency key is
-   * scoped to payoutId, so a "did it actually already transfer" retry
-   * resolves to the same Stripe object rather than double-paying.
-   */
   async releasePayout(payoutId: string): Promise<void> {
     const payout = await this.prisma.payout.findUniqueOrThrow({
       where: { id: payoutId },

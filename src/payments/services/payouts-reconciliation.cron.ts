@@ -4,15 +4,6 @@ import { PayoutStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PayoutsService } from './payouts.service';
 
-/**
- * A Payout should never sit at PENDING for long -- recordPayoutForCompletedSession
- * immediately hands off to releasePayout in the same code path. A row
- * lingering here past the age threshold means the process crashed between
- * the DB commit and the Stripe Transfer call. Safe to retry blindly:
- * releasePayout's Transfer call reuses the `transfer-${payoutId}`
- * idempotency key, so even a "Stripe already actually transferred it, we
- * just never recorded that" row resolves correctly instead of double-paying.
- */
 const STUCK_PAYOUT_AGE_MS = 60 * 60_000;
 
 @Injectable()
