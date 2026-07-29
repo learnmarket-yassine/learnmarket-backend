@@ -10,5 +10,6 @@ import { ShortlistedProposalsController } from './controllers/shortlisted-propos
   imports: [MessagingModule],
   providers: [ProposalsService, ShortlistedProposalsService],
   controllers: [ShortlistedProposalsController, ProposalsController],
+  exports: [ProposalsService],
 })
 export class ProposalsModule {}

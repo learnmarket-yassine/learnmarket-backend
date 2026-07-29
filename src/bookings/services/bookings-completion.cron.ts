@@ -1,13 +1,17 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { LearnRequestType, SessionStatus } from '@prisma/client';
+import { LearnRequestType, PaymentStatus, SessionStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PayoutsService } from '../../payments/services/payouts.service';
 
 @Injectable()
 export class BookingsCompletionCron {
   private readonly logger = new Logger(BookingsCompletionCron.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly payoutsService: PayoutsService,
+  ) {}
 
   @Cron(CronExpression.EVERY_30_MINUTES)
   async completeFinishedBookings(): Promise<void> {
@@ -26,21 +30,23 @@ export class BookingsCompletionCron {
       where: { status: 'CONFIRMED', endTime: { lt: new Date() } },
       include: {
         session: {
-          include: { proposal: { include: { learnRequest: true } } },
+          include: {
+            proposal: { include: { learnRequest: true, payment: true } },
+          },
         },
       },
     });
 
     for (const booking of dueBookings) {
-      await this.prisma.$transaction(async (tx) => {
+      const payoutTrigger = await this.prisma.$transaction(async (tx) => {
         await tx.booking.update({
           where: { id: booking.id },
           data: { status: 'COMPLETED' },
         });
 
-        if (!booking.session) return;
+        if (!booking.session) return null;
 
-        await tx.session.update({
+        const completedSession = await tx.session.update({
           where: { id: booking.session.id },
           data: { status: SessionStatus.COMPLETED },
         });
@@ -72,7 +78,18 @@ export class BookingsCompletionCron {
 
         // TODO: notifications hook — notify tutor/learner that the session completed
         // and (for COURSE) that the next session is ready to schedule.
+        if (proposal.payment?.status !== PaymentStatus.SUCCEEDED) return null;
+
+        return this.payoutsService.recordPayoutForCompletedSession(
+          tx,
+          completedSession,
+          proposal,
+          proposal.payment,
+        );
       });
+      if (payoutTrigger?.shouldRelease) {
+        await this.payoutsService.releasePayout(payoutTrigger.payoutId);
+      }
     }
 
     if (dueBookings.length > 0) {
