@@ -13,6 +13,7 @@ import {
   Proposal,
   ProposalStatus,
   SessionStatus,
+  TutorVerificationStatus,
   UserRole,
 } from '@prisma/client';
 import { AuthUser } from '../../common/decorators/current-user.decorator';
@@ -67,6 +68,15 @@ export class ProposalsService {
     learnRequestId: string,
     dto: CreateProposalDto,
   ) {
+    const tutorProfile = await this.prisma.tutorProfile.findUnique({
+      where: { userId: tutorId },
+    });
+    if (tutorProfile?.verificationStatus !== TutorVerificationStatus.APPROVED) {
+      throw new ForbiddenException(
+        'Complete verification before creating proposals. Visit your profile to submit for review.',
+      );
+    }
+
     const learnRequest = await this.prisma.learnRequest.findUnique({
       where: { id: learnRequestId },
     });

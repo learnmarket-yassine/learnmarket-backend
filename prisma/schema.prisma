@@ -30,6 +30,16 @@ enum PortfolioMediaType {
   LINK
 }
 
+enum TutorVerificationStatus {
+  UNSUBMITTED
+  PENDING
+  APPROVED
+  REJECTED
+  REVOKED
+
+  @@map("tutor_verification_status")
+}
+
 model User {
   id                           String                       @id @default(uuid())
   email                        String                       @unique
@@ -54,7 +64,8 @@ model User {
   createdAt                    DateTime                     @default(now()) @map("created_at")
   updatedAt                    DateTime                     @updatedAt @map("updated_at")
   refreshTokens                RefreshToken[]
-  tutorProfile                 TutorProfile?
+  tutorProfile                 TutorProfile?                @relation("TutorProfileUser")
+  reviewedTutorVerifications   TutorProfile[]               @relation("TutorVerificationReviewer")
   learnerProfile               LearnerProfile?
   education                    Education[]
   languages                    UserLanguage[]
@@ -151,19 +162,26 @@ model TutorProfile {
   id            String  @id @default(uuid())
   userId        String  @unique @map("user_id")
   videoIntroUrl String? @map("video_intro_url")
-  isVerified    Boolean @default(false) @map("is_verified")
+
+  verificationStatus TutorVerificationStatus @default(UNSUBMITTED) @map("verification_status")
+  submittedAt        DateTime?               @map("submitted_at")
+  reviewedById       String?                 @map("reviewed_by_id")
+  reviewedAt         DateTime?               @map("reviewed_at")
+  reviewNote         String?                 @map("review_note") @db.Text
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  user   User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  skills TutorProfileSkill[]
+  user       User                @relation("TutorProfileUser", fields: [userId], references: [id], onDelete: Cascade)
+  reviewedBy User?               @relation("TutorVerificationReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  skills     TutorProfileSkill[]
 
   portfolio      PortfolioItem[]
   certifications Certification[]
   employment     Employment[]
   specialties    TutorProfileSpecialty[]
 
+  @@index([verificationStatus])
   @@map("tutor_profiles")
 }
 
