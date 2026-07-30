@@ -64,7 +64,7 @@ export class BookingsCompletionCron {
         if (!nextSession) {
           await tx.learnRequest.update({
             where: { id: proposal.learnRequest.id },
-            data: { status: 'COMPLETED' },
+            data: { status: 'COMPLETED', completedAt: new Date() },
           });
         } else if (
           proposal.learnRequest.type === LearnRequestType.COURSE &&

@@ -27,6 +27,7 @@ import { SessionsModule } from './sessions/sessions.module';
 import { TutorVerificationModule } from './tutor-verification/tutor-verification.module';
 import { PaymentsModule } from './payments/payments.module';
 import { SparksModule } from './sparks/sparks.module';
+import { FeedbackModule } from './feedback/feedback.module';
 
 @Module({
   imports: [
@@ -58,6 +59,7 @@ import { SparksModule } from './sparks/sparks.module';
     TutorVerificationModule,
     PaymentsModule,
     SparksModule,
+    FeedbackModule,
   ],
   controllers: [AppController],
   providers: [

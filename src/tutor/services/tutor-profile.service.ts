@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { UserRole } from '@prisma/client';
+import { TutorVerificationStatus, UserRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UpdateProfileDto } from '../dto/profile/update-profile.dto';
 
@@ -63,5 +63,52 @@ export class TutorProfileService {
     });
     if (!profile) throw new NotFoundException('Tutor profile not found');
     return profile.id;
+  }
+
+  // Learner-facing public profile -- only exposes fields safe to show to
+  // anyone (no email/phone/address/stripe/verification-review internals),
+  // and only for tutors who have actually cleared verification. An
+  // unverified tutor never has an accepted proposal (see ProposalsService),
+  // so gating on APPROVED here doesn't hide anyone a learner could
+  // otherwise be working with.
+  async findPublicByUserId(tutorId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: tutorId },
+      select: {
+        id: true,
+        firstname: true,
+        lastname: true,
+        avatar: true,
+        headline: true,
+        bio: true,
+        country: true,
+        city: true,
+        languages: { select: { language: true, level: true } },
+        tutorProfile: {
+          select: {
+            videoIntroUrl: true,
+            verificationStatus: true,
+            skills: { include: { skill: true } },
+            specialties: {
+              include: { specialty: { include: { category: true } } },
+            },
+            portfolio: {
+              include: { media: true, skills: { include: { skill: true } } },
+            },
+            certifications: { include: { files: true } },
+            employment: { include: { certificates: true } },
+          },
+        },
+      },
+    });
+
+    if (
+      !user?.tutorProfile ||
+      user.tutorProfile.verificationStatus !== TutorVerificationStatus.APPROVED
+    ) {
+      throw new NotFoundException('Tutor profile not found');
+    }
+
+    return user;
   }
 }
