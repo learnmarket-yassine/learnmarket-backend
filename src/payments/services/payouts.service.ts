@@ -12,6 +12,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { toCents } from '../utils/money.util';
 import { sessionPayoutAmount } from '../utils/payout-math.util';
 import { StripeService } from './stripe.service';
+import { GetMyPayoutsQueryDto } from '../dto/get-my-payouts-query.dto';
 
 export interface PayoutTrigger {
   payoutId: string;
@@ -155,5 +156,54 @@ export class PayoutsService {
     for (const p of stuck) {
       await this.releasePayout(p.id);
     }
+  }
+
+  /**
+   * Tutor-scoped. Deliberately does NOT filter to RELEASED only -- a tutor
+   * with a HELD_FOR_REVIEW payout needs to see that it happened (no-show
+   * guard tripped), and a CANCELLED one needs to stay visible as history
+   * rather than silently disappearing. totalEarned below is the only place
+   * that narrows to RELEASED.
+   */
+  async getMyPayouts(tutorId: string, query: GetMyPayoutsQueryDto) {
+    const where: Prisma.PayoutWhereInput = { tutorId };
+    if (query.status) where.status = query.status;
+    const [items, totalCount, totalEarned] = await this.prisma.$transaction([
+      this.prisma.payout.findMany({
+        where,
+        orderBy: { triggeredAt: query.sortDir ?? 'desc' },
+        skip: query.page * query.take,
+        take: query.take,
+        include: {
+          session: {
+            select: {
+              title: true,
+              sessionNumber: true,
+              proposal: {
+                select: {
+                  learnRequest: {
+                    select: {
+                      title: true,
+                      learner: { select: { firstname: true, lastname: true } },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      }),
+      this.prisma.payout.count({ where }),
+      this.prisma.payout.aggregate({
+        where: { tutorId, status: PayoutStatus.RELEASED },
+        _sum: { amount: true },
+      }),
+    ]);
+
+    return {
+      paginatedResult: items,
+      totalCount,
+      totalEarned: totalEarned._sum.amount ?? 0,
+    };
   }
 }

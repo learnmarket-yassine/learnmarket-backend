@@ -12,6 +12,7 @@ import { PaymentsGateway } from './gateways/payments.gateway';
 import { PaymentsController } from './controllers/payments.controller';
 import { StripeWebhookController } from './controllers/stripe-webhook.controller';
 import { AdminPaymentDisputesController } from './controllers/admin-payment-disputes.controller';
+import { AdminTransactionsController } from './controllers/admin-transactions.controller';
 
 @Module({
   imports: [ProposalsModule, AuthModule],
@@ -29,6 +30,7 @@ import { AdminPaymentDisputesController } from './controllers/admin-payment-disp
     PaymentsController,
     StripeWebhookController,
     AdminPaymentDisputesController,
+    AdminTransactionsController,
   ],
   exports: [PayoutsService, StripeService],
 })
