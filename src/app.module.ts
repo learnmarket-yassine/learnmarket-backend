@@ -25,6 +25,7 @@ import { BookingsModule } from './bookings/bookings.module';
 import { MessagingModule } from './messaging/messaging.module';
 import { SessionsModule } from './sessions/sessions.module';
 import { TutorVerificationModule } from './tutor-verification/tutor-verification.module';
+import { PaymentsModule } from './payments/payments.module';
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { TutorVerificationModule } from './tutor-verification/tutor-verification
     MessagingModule,
     SessionsModule,
     TutorVerificationModule,
+    PaymentsModule,
   ],
   controllers: [AppController],
   providers: [

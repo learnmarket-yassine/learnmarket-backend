@@ -85,6 +85,8 @@ model User {
   announcementsAuthored        Announcement[]               @relation("AnnouncementAuthor")
   announcementCommentsAuthored AnnouncementComment[]        @relation("AnnouncementCommentAuthor")
   assignmentCommentsAuthored   AssignmentComment[]          @relation("AssignmentCommentAuthor")
+  learnerPayments              Payment[]                    @relation("LearnerPayments")
+  tutorPayouts                 Payout[]                     @relation("TutorPayouts")
 
   @@index([email])
   @@index([role])
@@ -168,6 +170,11 @@ model TutorProfile {
   reviewedById       String?                 @map("reviewed_by_id")
   reviewedAt         DateTime?               @map("reviewed_at")
   reviewNote         String?                 @map("review_note") @db.Text
+
+  stripeAccountId          String?   @unique @map("stripe_account_id")
+  stripeChargesEnabled     Boolean   @default(false) @map("stripe_charges_enabled")
+  stripePayoutsEnabled     Boolean   @default(false) @map("stripe_payouts_enabled")
+  stripeDetailsSubmittedAt DateTime? @map("stripe_details_submitted_at")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -572,6 +579,7 @@ model Proposal {
   sessionPlans  ProposalSession[] // the pitch -- exists only while PENDING
   sessions      Session[] // the real thing -- exists only once ACCEPTED
   shortlistedBy ShortlistedProposal[]
+  payment       Payment?
 
   @@index([tutorId])
   @@index([status])
@@ -644,6 +652,7 @@ model Session {
   booking       Booking?
   announcements Announcement[]
   assignment    Assignment?
+  payout        Payout?
 
   @@unique([proposalId, sessionNumber])
   @@index([proposalId])
@@ -883,4 +892,112 @@ model Message {
   @@index([conversationId, createdAt])
   @@index([senderId])
   @@map("messages")
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+
+  @@map("payment_status")
+}
+
+model Payment {
+  id                    String        @id @default(uuid())
+  proposalId            String        @unique @map("proposal_id")
+  learnerId             String        @map("learner_id")
+  stripePaymentIntentId String        @unique @map("stripe_payment_intent_id")
+  amount                Decimal       @map("amount") @db.Decimal(10, 2)
+  currency              String        @default("usd")
+  status                PaymentStatus @default(PENDING)
+  createdAt             DateTime      @default(now()) @map("created_at")
+  succeededAt           DateTime?     @map("succeeded_at")
+
+  proposal Proposal         @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  learner  User             @relation("LearnerPayments", fields: [learnerId], references: [id], onDelete: Cascade)
+  payouts  Payout[]
+  refunds  Refund[]
+  disputes PaymentDispute[]
+
+  @@index([learnerId])
+  @@index([status])
+  @@map("payments")
+}
+
+enum PayoutStatus {
+  PENDING // earned, awaiting transfer
+  PENDING_ONBOARDING // earned, but tutor's Stripe account can't
+  // receive transfers yet -- will retry
+  RELEASED // Transfer actually created and sent
+  HELD_FOR_REVIEW // no-show guard tripped (tutorJoinedAt was
+  // never set) -- deliberately NOT named "disputed", to avoid
+  // confusion with Stripe's own dispute (chargeback) terminology
+  CANCELLED // session/proposal cancelled before this payout was ever
+  // released -- money stays with the platform, becomes refundable
+  // to the learner instead
+  FAILED
+
+  @@map("payout_status")
+}
+
+model Payout {
+  id               String       @id @default(uuid())
+  paymentId        String       @map("payment_id")
+  sessionId        String       @unique @map("session_id")
+  tutorId          String       @map("tutor_id")
+  amount           Decimal      @map("amount") @db.Decimal(10, 2)
+  status           PayoutStatus @default(PENDING)
+  stripeTransferId String?      @unique @map("stripe_transfer_id")
+  triggeredAt      DateTime     @default(now()) @map("triggered_at")
+  releasedAt       DateTime?    @map("released_at")
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  tutor   User    @relation("TutorPayouts", fields: [tutorId], references: [id], onDelete: Cascade)
+
+  @@index([paymentId])
+  @@index([tutorId])
+  @@index([status])
+  @@map("payouts")
+}
+
+model Refund {
+  id             String   @id @default(uuid())
+  paymentId      String   @map("payment_id")
+  stripeRefundId String   @unique @map("stripe_refund_id")
+  amount         Decimal  @map("amount") @db.Decimal(10, 2)
+  reason         String?  @db.Text
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([paymentId])
+  @@map("refunds")
+}
+
+model PaymentDispute {
+  id              String   @id @default(uuid())
+  paymentId       String   @map("payment_id")
+  stripeDisputeId String   @unique @map("stripe_dispute_id")
+  amount          Decimal  @map("amount") @db.Decimal(10, 2)
+  reason          String?
+  status          String // Stripe's raw dispute status string, e.g. "needs_response"
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([paymentId])
+  @@index([status])
+  @@map("payment_disputes")
+}
+
+model StripeWebhookEvent {
+  id          String   @id // the Stripe event id itself, not a
+  // generated uuid -- this IS the deduplication key
+  type        String
+  processedAt DateTime @default(now()) @map("processed_at")
+
+  @@map("stripe_webhook_events")
 }

@@ -18,8 +18,6 @@ import { RedisModule } from '../redis/redis.module';
     EmailModule,
     RedisModule,
   ],
-  // Exported so MessagingGateway can reuse verifyAccessToken() for socket
-  // handshake auth instead of reimplementing JWT verification.
   exports: [AuthService],
 })
 export class AuthModule {}

@@ -3,12 +3,13 @@ import {
   LearnRequestStatus,
   ProposalStatus,
   SessionStatus,
+  TutorVerificationStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MessagingService } from '../../messaging/services/messaging.service';
 import { ProposalsService } from './proposals.service';
 
-describe('ProposalsService.accept (integration, real DB)', () => {
+describe('ProposalsService.runAcceptTransaction (integration, real DB)', () => {
   let moduleRef: TestingModule;
   let prisma: PrismaService;
   let proposals: ProposalsService;
@@ -24,7 +25,10 @@ describe('ProposalsService.accept (integration, real DB)', () => {
       providers: [
         PrismaService,
         ProposalsService,
-        { provide: MessagingService, useValue: { recomputeConversationActiveState: jest.fn() } },
+        {
+          provide: MessagingService,
+          useValue: { recomputeConversationActiveState: jest.fn() },
+        },
       ],
     }).compile();
 
@@ -77,6 +81,13 @@ describe('ProposalsService.accept (integration, real DB)', () => {
     learnerId = learner.id;
     categoryId = category.id;
 
+    await prisma.tutorProfile.createMany({
+      data: [tutorId, otherTutorId].map((userId) => ({
+        userId,
+        verificationStatus: TutorVerificationStatus.APPROVED,
+      })),
+    });
+
     const learnRequest = await prisma.learnRequest.create({
       data: {
         learnerId,
@@ -97,6 +108,15 @@ describe('ProposalsService.accept (integration, real DB)', () => {
     await prisma.category.deleteMany({ where: { id: categoryId } });
   });
 
+  // Mirrors how the payment_intent.succeeded webhook handler actually
+  // invokes this -- inside its own $transaction, with no learnerId in
+  // scope.
+  async function accept(_learnerId: string, proposalId: string) {
+    return prisma.$transaction((tx) =>
+      proposals.runAcceptTransaction(tx, proposalId),
+    );
+  }
+
   async function createProposal(forTutorId: string) {
     return proposals.create(forTutorId, learnRequestId, {
       sessionDurationMinutes: 60,
@@ -113,7 +133,7 @@ describe('ProposalsService.accept (integration, real DB)', () => {
     const accepted = await createProposal(tutorId);
     const other = await createProposal(otherTutorId);
 
-    await proposals.accept(learnerId, accepted.id);
+    await accept(learnerId, accepted.id);
 
     const sessions = await prisma.session.findMany({
       where: { proposalId: accepted.id },
@@ -156,7 +176,7 @@ describe('ProposalsService.accept (integration, real DB)', () => {
       },
     });
 
-    await expect(proposals.accept(learnerId, accepted.id)).rejects.toThrow();
+    await expect(accept(learnerId, accepted.id)).rejects.toThrow();
 
     const acceptedProposal = await prisma.proposal.findUniqueOrThrow({
       where: { id: accepted.id },
@@ -187,8 +207,8 @@ describe('ProposalsService.accept (integration, real DB)', () => {
     const second = await createProposal(otherTutorId);
 
     const results = await Promise.allSettled([
-      proposals.accept(learnerId, first.id),
-      proposals.accept(learnerId, second.id),
+      accept(learnerId, first.id),
+      accept(learnerId, second.id),
     ]);
 
     const fulfilled = results.filter((r) => r.status === 'fulfilled');
@@ -208,9 +228,11 @@ describe('ProposalsService.accept (integration, real DB)', () => {
       where: { id: { in: [first.id, second.id] } },
     });
     for (const row of proposalsRows) {
-      expect([ProposalStatus.ACCEPTED, ProposalStatus.PENDING, ProposalStatus.DECLINED]).toContain(
-        row.status,
-      );
+      expect([
+        ProposalStatus.ACCEPTED,
+        ProposalStatus.PENDING,
+        ProposalStatus.DECLINED,
+      ]).toContain(row.status);
     }
     expect(
       proposalsRows.filter((row) => row.status === ProposalStatus.ACCEPTED),

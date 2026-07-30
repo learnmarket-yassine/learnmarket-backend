@@ -27,12 +27,6 @@ import {
 } from '../dto/get-my-proposals-query.dto';
 import { UpdateProposalDto } from '../dto/update-proposal.dto';
 
-// sessions include their slotHold (if any) so a client can resume an
-// in-progress HELD session (check status + expiresAt) without a separate
-// endpoint. Explicit select (not a bare include) so the Session model's
-// zoom* columns -- zoomStartUrl in particular carries a host-privilege
-// token -- never ride along on this general-purpose payload. Meeting
-// details are only ever served through SessionsService.getMeetingDetails.
 const PROPOSAL_INCLUDE = {
   sessionPlans: true,
   sessions: {
@@ -125,10 +119,6 @@ export class ProposalsService {
           learnRequestId,
           tutorId,
           sessionDurationMinutes: dto.sessionDurationMinutes,
-          // dto.totalPrice is the tutor's asking price -- the fee is
-          // applied here, server-side, to get the learner-facing total
-          // that actually gets stored/charged. Never trust a client-sent
-          // learner-facing number.
           totalPrice: applyServiceFee(dto.totalPrice),
           payoutMethod,
           message: dto.message,
@@ -143,9 +133,6 @@ export class ProposalsService {
           objective: plan.objective,
         })),
       });
-
-      // Reactivates a previously-inactive conversation between this tutor
-      // and learner, if one exists.
       await this.messaging.recomputeConversationActiveState(
         tx,
         tutorId,
@@ -327,99 +314,93 @@ export class ProposalsService {
     });
   }
 
-  async accept(learnerId: string, proposalId: string) {
-    const proposal = await this.prisma.proposal.findUnique({
+  /**
+   * The actual acceptance side effects: Proposal -> ACCEPTED, auto-decline
+   * siblings, create Session rows, LearnRequest -> CLOSED. Triggered
+   * exclusively by the `payment_intent.succeeded` webhook (see
+   * PaymentsModule's webhook handler), which runs this inside its own
+   * transaction alongside marking the Payment SUCCEEDED so both effects
+   * commit atomically. There is no learnerId here to check ownership
+   * against -- by the time the webhook fires, the caller only has the
+   * proposalId from the PaymentIntent's metadata. Ownership/status were
+   * already verified when the PaymentIntent was created
+   * (PaymentsService.createPaymentIntentForProposal); the conditional
+   * updateMany guards below are the only correctness check that still
+   * matters here, and they're unaffected by this refactor.
+   */
+  async runAcceptTransaction(
+    tx: Prisma.TransactionClient,
+    proposalId: string,
+  ): Promise<void> {
+    const proposal = await tx.proposal.findUniqueOrThrow({
       where: { id: proposalId },
       include: { learnRequest: true },
     });
-    if (!proposal) throw new NotFoundException('Proposal not found');
-    if (proposal.learnRequest.learnerId !== learnerId) {
-      throw new ForbiddenException('You do not own this learn request');
-    }
-    if (proposal.status !== ProposalStatus.PENDING) {
-      throw new ConflictException('Proposal is not pending');
-    }
-    if (proposal.learnRequest.status !== LearnRequestStatus.OPEN) {
+
+    // Conditional updates, not blind ones -- this is the actual
+    // concurrency guard. Two acceptance triggers for two different PENDING
+    // proposals on the same OPEN learn request can both pass earlier
+    // checks before either commits; without a WHERE-guarded write here,
+    // both would succeed and the request would end up double-booked (two
+    // tutors both ACCEPTED, both owed a payout). Whichever transaction's
+    // conditional update loses the race affects 0 rows and aborts cleanly
+    // instead of silently overwriting.
+    const learnRequestClosed = await tx.learnRequest.updateMany({
+      where: { id: proposal.learnRequestId, status: LearnRequestStatus.OPEN },
+      data: { status: LearnRequestStatus.CLOSED },
+    });
+    if (learnRequestClosed.count === 0) {
       throw new ConflictException('Learn request is not open');
     }
 
-    return this.prisma.$transaction(async (tx) => {
-      // Conditional updates, not blind ones -- this is the actual
-      // concurrency guard. Two accept() calls for two different PENDING
-      // proposals on the same OPEN learn request can both pass the checks
-      // above before either commits; without a WHERE-guarded write here,
-      // both would succeed and the request would end up double-booked
-      // (two tutors both ACCEPTED, both owed a payout). Whichever
-      // transaction's conditional update loses the race affects 0 rows
-      // and aborts cleanly instead of silently overwriting.
-      const learnRequestClosed = await tx.learnRequest.updateMany({
-        where: { id: proposal.learnRequestId, status: LearnRequestStatus.OPEN },
-        data: { status: LearnRequestStatus.CLOSED },
-      });
-      if (learnRequestClosed.count === 0) {
-        throw new ConflictException('Learn request is not open');
-      }
+    const proposalAccepted = await tx.proposal.updateMany({
+      where: { id: proposalId, status: ProposalStatus.PENDING },
+      data: { status: ProposalStatus.ACCEPTED },
+    });
+    if (proposalAccepted.count === 0) {
+      throw new ConflictException('Proposal is not pending');
+    }
 
-      const proposalAccepted = await tx.proposal.updateMany({
-        where: { id: proposalId, status: ProposalStatus.PENDING },
-        data: { status: ProposalStatus.ACCEPTED },
-      });
-      if (proposalAccepted.count === 0) {
-        throw new ConflictException('Proposal is not pending');
-      }
+    await tx.proposal.updateMany({
+      where: {
+        learnRequestId: proposal.learnRequestId,
+        id: { not: proposalId },
+        status: ProposalStatus.PENDING,
+      },
+      data: { status: ProposalStatus.DECLINED },
+    });
+    const declinedProposals = await tx.proposal.findMany({
+      where: {
+        learnRequestId: proposal.learnRequestId,
+        id: { not: proposalId },
+        status: ProposalStatus.DECLINED,
+      },
+      select: { tutorId: true },
+    });
+    for (const declined of declinedProposals) {
+      await this.messaging.recomputeConversationActiveState(
+        tx,
+        declined.tutorId,
+        proposal.learnRequest.learnerId,
+      );
+    }
 
-      await tx.proposal.updateMany({
-        where: {
-          learnRequestId: proposal.learnRequestId,
-          id: { not: proposalId },
-          status: ProposalStatus.PENDING,
-        },
-        data: { status: ProposalStatus.DECLINED },
-      });
+    const plans = await tx.proposalSession.findMany({
+      where: { proposalId },
+      orderBy: { sessionNumber: 'asc' },
+    });
 
-      // Each auto-declined tutor may have just lost their only active
-      // relationship with this learner -- recompute their conversation.
-      // The winning tutor's conversation was already active and stays
-      // active, so it's not touched here.
-      const declinedProposals = await tx.proposal.findMany({
-        where: {
-          learnRequestId: proposal.learnRequestId,
-          id: { not: proposalId },
-          status: ProposalStatus.DECLINED,
-        },
-        select: { tutorId: true },
-      });
-      for (const declined of declinedProposals) {
-        await this.messaging.recomputeConversationActiveState(
-          tx,
-          declined.tutorId,
-          learnerId,
-        );
-      }
-
-      const plans = await tx.proposalSession.findMany({
-        where: { proposalId },
-        orderBy: { sessionNumber: 'asc' },
-      });
-
-      await tx.session.createMany({
-        data: plans.map((plan) => ({
-          proposalId,
-          sessionNumber: plan.sessionNumber,
-          title: plan.title,
-          objective: plan.objective,
-          status:
-            plan.sessionNumber === 1
-              ? SessionStatus.PENDING_SCHEDULE
-              : SessionStatus.LOCKED,
-        })),
-      });
-
-      const accepted = await tx.proposal.findUniqueOrThrow({
-        where: { id: proposalId },
-        include: PROPOSAL_INCLUDE,
-      });
-      return this.withFeeBreakdown(accepted);
+    await tx.session.createMany({
+      data: plans.map((plan) => ({
+        proposalId,
+        sessionNumber: plan.sessionNumber,
+        title: plan.title,
+        objective: plan.objective,
+        status:
+          plan.sessionNumber === 1
+            ? SessionStatus.PENDING_SCHEDULE
+            : SessionStatus.LOCKED,
+      })),
     });
   }
 
@@ -440,8 +421,6 @@ export class ProposalsService {
   ): void {
     const isTutor = proposal.tutorId === viewer.id;
     const isLearner = proposal.learnRequest.learnerId === viewer.id;
-    // 404, not 403 -- a viewer with no legitimate relationship to this
-    // proposal has no reason to learn it exists at all.
     if (!isTutor && !isLearner) {
       throw new NotFoundException('Proposal not found');
     }

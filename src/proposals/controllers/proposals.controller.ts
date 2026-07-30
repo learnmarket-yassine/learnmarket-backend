@@ -83,9 +83,8 @@ export class ProposalsController {
     return this.proposals.withdraw(tutorId, id);
   }
 
-  @Post('proposals/:id/accept')
-  @Roles(UserRole.LEARNER)
-  accept(@CurrentUser('id') learnerId: string, @Param('id') id: string) {
-    return this.proposals.accept(learnerId, id);
-  }
+  // Hiring a tutor now requires a successful Stripe payment before the
+  // proposal is accepted -- see PaymentsController's
+  // `POST proposals/:id/checkout`. Acceptance itself only ever happens via
+  // the payment_intent.succeeded webhook (ProposalsService.runAcceptTransaction).
 }
