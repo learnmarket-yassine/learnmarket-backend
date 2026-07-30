@@ -158,7 +158,15 @@ export class ProposalsService {
         learnRequest: {
           include: {
             category: true,
-            learner: { select: { country: true, city: true } },
+            learner: {
+              select: {
+                id: true,
+                firstname: true,
+                lastname: true,
+                country: true,
+                city: true,
+              },
+            },
             skills: { include: { skill: true } },
           },
         },

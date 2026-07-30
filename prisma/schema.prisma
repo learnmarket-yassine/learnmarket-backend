@@ -88,6 +88,8 @@ model User {
   learnerPayments              Payment[]                    @relation("LearnerPayments")
   tutorPayouts                 Payout[]                     @relation("TutorPayouts")
   tutorSparksTransactions      SparksTransaction[]          @relation("TutorSparksTransactions")
+  feedbackGiven                Feedback[]                   @relation("FeedbackAuthor")
+  feedbackReceived             Feedback[]                   @relation("FeedbackAboutUser")
 
   @@index([email])
   @@index([role])
@@ -499,6 +501,9 @@ model LearnRequest {
   requestedFrequency Int?               @map("requested_frequency")
   budgetMin          Decimal?           @map("budget_min") @db.Decimal(10, 2)
   budgetMax          Decimal?           @map("budget_max") @db.Decimal(10, 2)
+  completedAt        DateTime?          @map("completed_at") // set when the
+  // last session completes and status transitions to COMPLETED -- drives
+  // the feedback double-blind reveal fallback deadline
   createdAt          DateTime           @default(now()) @map("created_at")
   updatedAt          DateTime           @updatedAt @map("updated_at")
 
@@ -583,6 +588,7 @@ model Proposal {
   shortlistedBy      ShortlistedProposal[]
   payment            Payment?
   sparksTransactions SparksTransaction[]
+  feedbacks          Feedback[]
 
   @@index([tutorId])
   @@index([status])
@@ -1049,4 +1055,24 @@ model SparksTransaction {
   @@index([tutorId])
   @@index([tutorId, createdAt])
   @@map("sparks_transactions")
+}
+
+model Feedback {
+  id          String   @id @default(uuid())
+  proposalId  String   @map("proposal_id")
+  authorId    String   @map("author_id") // who is LEAVING this feedback
+  aboutUserId String   @map("about_user_id") // who is being reviewed
+  rating      Int // 1-5, enforced by CHECK constraint (see migration)
+  comment     String?  @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  proposal  Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  author    User     @relation("FeedbackAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  aboutUser User     @relation("FeedbackAboutUser", fields: [aboutUserId], references: [id], onDelete: Cascade)
+
+  @@unique([proposalId, authorId]) // exactly one feedback per author per
+  // course -- this is what makes "has the other party submitted yet" a
+  // simple existence check, not something needing extra state
+  @@index([aboutUserId])
+  @@map("feedbacks")
 }

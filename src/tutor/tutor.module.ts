@@ -11,6 +11,7 @@ import { TutorSkillsService } from './services/tutor-skills.service';
 import { TutorSpecialtiesService } from './services/tutor-specialties.service';
 
 import { TutorProfileController } from './controllers/tutor-profile.controller';
+import { PublicTutorProfileController } from './controllers/public-tutor-profile.controller';
 import { PortfolioController } from './controllers/portfolio.controller';
 import { CertificationController } from './controllers/certification.controller';
 import { EmploymentController } from './controllers/employment.controller';
@@ -29,6 +30,7 @@ import { TutorSpecialtiesController } from './controllers/tutor-specialties.cont
   ],
   controllers: [
     TutorProfileController,
+    PublicTutorProfileController,
     PortfolioController,
     CertificationController,
     EmploymentController,
