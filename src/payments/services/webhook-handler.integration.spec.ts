@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import {
+  SparksTransactionType,
   LearnRequestStatus,
   PaymentStatus,
   ProposalStatus,
@@ -10,6 +11,7 @@ import type Stripe from 'stripe';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MessagingService } from '../../messaging/services/messaging.service';
 import { ProposalsService } from '../../proposals/services/proposals.service';
+import { SparksService } from '../../sparks/services/sparks.service';
 import { StripeService } from './stripe.service';
 import { PayoutsService } from './payouts.service';
 import { WebhookHandlerService } from './webhook-handler.service';
@@ -37,6 +39,7 @@ describe('WebhookHandlerService (integration, real DB)', () => {
         ProposalsService,
         PayoutsService,
         WebhookHandlerService,
+        SparksService,
         {
           provide: MessagingService,
           useValue: { recomputeConversationActiveState: jest.fn() },
@@ -278,5 +281,95 @@ describe('WebhookHandlerService (integration, real DB)', () => {
       where: { id: `evt_unknown_${proposalId}` },
     });
     expect(recorded).not.toBeNull();
+  });
+
+  describe('sparks_purchase payment_intent.succeeded', () => {
+    let offerId: string;
+
+    beforeEach(async () => {
+      const offer = await prisma.sparksOffer.create({
+        data: { name: 'Starter', sparksAmount: 20, priceCents: 999 },
+      });
+      offerId = offer.id;
+    });
+
+    afterEach(async () => {
+      await prisma.sparksOffer.deleteMany({ where: { id: offerId } });
+    });
+
+    function fakeSparksPurchaseIntent(
+      id: string,
+      amountCents: number,
+    ): Stripe.PaymentIntent {
+      return {
+        id,
+        amount: amountCents,
+        metadata: {
+          type: 'sparks_purchase',
+          tutorId,
+          offerId,
+          sparksAmount: '20',
+        },
+      } as unknown as Stripe.PaymentIntent;
+    }
+
+    it('credits the balance, logs a PURCHASE transaction with the real amount charged, and does NOT run proposal-acceptance logic', async () => {
+      const piId = `pi_sparks_${proposalId}`;
+      const event = fakeEvent(
+        `evt_sparks_${proposalId}`,
+        'payment_intent.succeeded',
+        fakeSparksPurchaseIntent(piId, 999),
+      );
+
+      await webhookHandler.handle(event);
+
+      const profile = await prisma.tutorProfile.findUniqueOrThrow({
+        where: { userId: tutorId },
+      });
+      expect(profile.sparksBalance).toBe(20);
+
+      const transaction = await prisma.sparksTransaction.findUniqueOrThrow({
+        where: { stripePaymentIntentId: piId },
+      });
+      expect(transaction.type).toBe(SparksTransactionType.PURCHASE);
+      expect(transaction.amount).toBe(20);
+      expect(transaction.balanceAfter).toBe(20);
+      expect(transaction.offerId).toBe(offerId);
+      expect(transaction.pricePaidCents).toBe(999);
+
+      // The proposal seeded in the outer beforeEach must be completely
+      // untouched -- a Sparks purchase must never accidentally trigger
+      // proposal acceptance.
+      const proposal = await prisma.proposal.findUniqueOrThrow({
+        where: { id: proposalId },
+      });
+      expect(proposal.status).toBe(ProposalStatus.PENDING);
+      const learnRequest = await prisma.learnRequest.findUniqueOrThrow({
+        where: { id: learnRequestId },
+      });
+      expect(learnRequest.status).toBe(LearnRequestStatus.OPEN);
+    });
+
+    it('redelivering the same sparks_purchase event results in exactly one balance increase', async () => {
+      const piId = `pi_sparks_redelivered_${proposalId}`;
+      const event = fakeEvent(
+        `evt_sparks_redelivered_${proposalId}`,
+        'payment_intent.succeeded',
+        fakeSparksPurchaseIntent(piId, 999),
+      );
+
+      await webhookHandler.handle(event);
+      await webhookHandler.handle(event); // simulated Stripe redelivery
+
+      const profile = await prisma.tutorProfile.findUniqueOrThrow({
+        where: { userId: tutorId },
+      });
+      expect(profile.sparksBalance).toBe(20);
+
+      const transactions = await prisma.sparksTransaction.findMany({
+        where: { stripePaymentIntentId: piId },
+      });
+      expect(transactions).toHaveLength(1);
+    });
   });
 });

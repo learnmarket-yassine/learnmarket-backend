@@ -17,6 +17,7 @@ import { getFeeBreakdown } from '../../common/utils/fee.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CategoriesService } from '../../categories/categories.service';
 import { SkillsService } from '../../skills/skills.service';
+import { SparksService } from '../../sparks/services/sparks.service';
 import { CreateLearnRequestDraftDto } from '../dto/create-draft.dto';
 import { UpdateLearnRequestDto } from '../dto/update-learn-request.dto';
 import { GetLearnRequestsQueryDto } from '../dto/list-learn-requests-query.dto';
@@ -55,10 +56,6 @@ const PROPOSAL_INCLUDE = {
   },
 } satisfies Prisma.ProposalInclude;
 
-// Exported so SavedLearnRequestsService can nest the exact same shape under
-// `savedLearnRequest.findMany({ include: { learnRequest: { include: ... } } })`
-// for the Saved tab -- one include definition, reused by both the main feed
-// and the saved list, instead of a second bespoke query shape.
 export function buildListInclude(user: Pick<AuthUser, 'id' | 'role'>) {
   return {
     category: true,
@@ -122,6 +119,7 @@ export class LearnRequestsService {
     private readonly categories: CategoriesService,
     private readonly skills: SkillsService,
     private readonly validation: LearnRequestValidationService,
+    private readonly sparksService: SparksService,
   ) {}
 
   createDraft(learnerId: string, dto: CreateLearnRequestDraftDto) {
@@ -343,10 +341,39 @@ export class LearnRequestsService {
     if (existing.status !== LearnRequestStatus.OPEN) {
       throw new ConflictException('Only open learn requests can be cancelled');
     }
-    return this.prisma.learnRequest.update({
-      where: { id },
-      data: { status: LearnRequestStatus.CANCELLED },
-      include: buildDetailInclude(),
+
+    return this.prisma.$transaction(async (tx) => {
+      // Status-guarded updateMany, not a blind update -- same discipline as
+      // the accept-transaction guards elsewhere in this codebase, so a
+      // concurrent state change (e.g. a proposal getting accepted at the
+      // same moment) can't leave this transaction cancelling a request that
+      // no longer qualifies.
+      const cancelled = await tx.learnRequest.updateMany({
+        where: { id, status: LearnRequestStatus.OPEN },
+        data: { status: LearnRequestStatus.CANCELLED },
+      });
+      if (cancelled.count === 0) {
+        throw new ConflictException(
+          'Only open learn requests can be cancelled',
+        );
+      }
+
+      // A cancelled-before-review request is a loss through no fault of the
+      // tutor's own proposal quality -- refund every still-PENDING
+      // proposal's spent Sparks (unlike a learner declining a proposal,
+      // which does not refund).
+      const pendingProposals = await tx.proposal.findMany({
+        where: { learnRequestId: id, status: ProposalStatus.PENDING },
+        select: { id: true },
+      });
+      for (const proposal of pendingProposals) {
+        await this.sparksService.refundSparksForProposal(tx, proposal.id);
+      }
+
+      return tx.learnRequest.findUniqueOrThrow({
+        where: { id },
+        include: buildDetailInclude(),
+      });
     });
   }
 

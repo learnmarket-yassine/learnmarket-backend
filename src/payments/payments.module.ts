@@ -1,7 +1,8 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { ProposalsModule } from '../proposals/proposals.module';
-import { StripeService } from './services/stripe.service';
+import { SparksModule } from '../sparks/sparks.module';
+import { StripeModule } from './stripe.module';
 import { PaymentsService } from './services/payments.service';
 import { PayoutsService } from './services/payouts.service';
 import { PayoutsReconciliationCron } from './services/payouts-reconciliation.cron';
@@ -15,9 +16,8 @@ import { AdminPaymentDisputesController } from './controllers/admin-payment-disp
 import { AdminTransactionsController } from './controllers/admin-transactions.controller';
 
 @Module({
-  imports: [ProposalsModule, AuthModule],
+  imports: [ProposalsModule, AuthModule, StripeModule, SparksModule],
   providers: [
-    StripeService,
     PaymentsService,
     PayoutsService,
     PayoutsReconciliationCron,
@@ -32,6 +32,6 @@ import { AdminTransactionsController } from './controllers/admin-transactions.co
     AdminPaymentDisputesController,
     AdminTransactionsController,
   ],
-  exports: [PayoutsService, StripeService],
+  exports: [PayoutsService, StripeModule],
 })
 export class PaymentsModule {}
