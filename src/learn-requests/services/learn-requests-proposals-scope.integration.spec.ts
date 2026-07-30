@@ -25,6 +25,7 @@ describe('LearnRequestsService.findMany proposals scoping (integration, real DB)
     {} as never,
     {} as never,
     {} as never,
+    {} as never,
   );
 
   let tutorAId: string;

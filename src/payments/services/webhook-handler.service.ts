@@ -4,6 +4,7 @@ import * as Sentry from '@sentry/nestjs';
 import Stripe from 'stripe';
 import { ProposalsService } from '../../proposals/services/proposals.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SparksService } from '../../sparks/services/sparks.service';
 import { PayoutsService } from './payouts.service';
 import { PaymentsGateway } from '../gateways/payments.gateway';
 
@@ -16,24 +17,15 @@ export class WebhookHandlerService {
     private readonly proposalsService: ProposalsService,
     private readonly payoutsService: PayoutsService,
     private readonly paymentsGateway: PaymentsGateway,
+    private readonly sparksService: SparksService,
   ) {}
 
   async handle(event: Stripe.Event): Promise<{ received: true }> {
-    // Fast-path read outside any transaction -- cheap, avoids opening a
-    // transaction for the common re-delivery case. Stripe delivers
-    // webhooks at-least-once; this is the deduplication key.
     const alreadyProcessed = await this.prisma.stripeWebhookEvent.findUnique({
       where: { id: event.id },
     });
     if (alreadyProcessed) return { received: true };
-
-    // account.updated may need to trigger real Stripe Transfer calls
-    // (retryPendingOnboardingPayouts) -- that must happen AFTER the
-    // transaction below commits, never inside it.
     let retryOnboardingAccountId: string | null = null;
-    // Likewise, the socket emit telling the learner's "finalizing your
-    // booking" screen to move on should only fire once acceptance has
-    // actually committed.
     let acceptedFor: { learnerId: string; proposalId: string } | null = null;
 
     switch (event.type) {
@@ -72,9 +64,6 @@ export class WebhookHandlerService {
         });
         break;
       default:
-        // Unknown/irrelevant event type -- acknowledge and ignore, but
-        // still record it so redelivery of an unhandled type is also
-        // idempotent-skippable.
         await this.prisma.$transaction((tx) => this.recordEvent(tx, event));
     }
 
@@ -104,15 +93,16 @@ export class WebhookHandlerService {
     event: Stripe.Event,
   ): Promise<{ learnerId: string; proposalId: string } | null> {
     const paymentIntent = event.data.object as Stripe.PaymentIntent;
+
+    if (paymentIntent.metadata?.type === 'sparks_purchase') {
+      await this.sparksService.fulfillSparksPurchase(tx, paymentIntent);
+      return null;
+    }
+
     const payment = await tx.payment.findUnique({
       where: { stripePaymentIntentId: paymentIntent.id },
     });
     if (!payment) {
-      // Should be unreachable -- the PaymentIntent was created by us with
-      // metadata.proposalId, and the Payment row is created in the same
-      // request. A missing row here means data corruption worth surfacing
-      // loudly (throwing rolls back this transaction, including the
-      // StripeWebhookEvent insert, so Stripe retries the delivery).
       throw new Error(
         `No Payment record for PaymentIntent ${paymentIntent.id}`,
       );
@@ -123,10 +113,6 @@ export class WebhookHandlerService {
       where: { id: payment.id },
       data: { status: PaymentStatus.SUCCEEDED, succeededAt: new Date() },
     });
-
-    // The existing accept() logic -- same transaction, same
-    // auto-decline-losers/create-Sessions logic, now triggered from payment
-    // confirmation instead of a direct learner click.
     await this.proposalsService.runAcceptTransaction(tx, payment.proposalId);
 
     return { learnerId: payment.learnerId, proposalId: payment.proposalId };

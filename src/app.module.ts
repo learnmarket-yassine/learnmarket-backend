@@ -26,6 +26,7 @@ import { MessagingModule } from './messaging/messaging.module';
 import { SessionsModule } from './sessions/sessions.module';
 import { TutorVerificationModule } from './tutor-verification/tutor-verification.module';
 import { PaymentsModule } from './payments/payments.module';
+import { SparksModule } from './sparks/sparks.module';
 
 @Module({
   imports: [
@@ -56,6 +57,7 @@ import { PaymentsModule } from './payments/payments.module';
     SessionsModule,
     TutorVerificationModule,
     PaymentsModule,
+    SparksModule,
   ],
   controllers: [AppController],
   providers: [

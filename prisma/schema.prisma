@@ -87,6 +87,7 @@ model User {
   assignmentCommentsAuthored   AssignmentComment[]          @relation("AssignmentCommentAuthor")
   learnerPayments              Payment[]                    @relation("LearnerPayments")
   tutorPayouts                 Payout[]                     @relation("TutorPayouts")
+  tutorSparksTransactions      SparksTransaction[]          @relation("TutorSparksTransactions")
 
   @@index([email])
   @@index([role])
@@ -175,6 +176,7 @@ model TutorProfile {
   stripeChargesEnabled     Boolean   @default(false) @map("stripe_charges_enabled")
   stripePayoutsEnabled     Boolean   @default(false) @map("stripe_payouts_enabled")
   stripeDetailsSubmittedAt DateTime? @map("stripe_details_submitted_at")
+  sparksBalance            Int       @default(0) @map("sparks_balance")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -574,12 +576,13 @@ model Proposal {
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
-  learnRequest  LearnRequest          @relation(fields: [learnRequestId], references: [id], onDelete: Cascade)
-  tutor         User                  @relation("TutorProposals", fields: [tutorId], references: [id], onDelete: Cascade)
-  sessionPlans  ProposalSession[] // the pitch -- exists only while PENDING
-  sessions      Session[] // the real thing -- exists only once ACCEPTED
-  shortlistedBy ShortlistedProposal[]
-  payment       Payment?
+  learnRequest       LearnRequest          @relation(fields: [learnRequestId], references: [id], onDelete: Cascade)
+  tutor              User                  @relation("TutorProposals", fields: [tutorId], references: [id], onDelete: Cascade)
+  sessionPlans       ProposalSession[] // the pitch -- exists only while PENDING
+  sessions           Session[] // the real thing -- exists only once ACCEPTED
+  shortlistedBy      ShortlistedProposal[]
+  payment            Payment?
+  sparksTransactions SparksTransaction[]
 
   @@index([tutorId])
   @@index([status])
@@ -1000,4 +1003,50 @@ model StripeWebhookEvent {
   processedAt DateTime @default(now()) @map("processed_at")
 
   @@map("stripe_webhook_events")
+}
+
+enum SparksTransactionType {
+  MONTHLY_GRANT
+  PURCHASE
+  PROPOSAL_SPEND
+  REFUND
+
+  @@map("sparks_transaction_type")
+}
+
+model SparksOffer {
+  id           String   @id @default(uuid())
+  name         String
+  sparksAmount Int      @map("sparks_amount")
+  priceCents   Int      @map("price_cents")
+  currency     String   @default("usd")
+  isActive     Boolean  @default(true) @map("is_active") // soft-delete only --
+  displayOrder Int      @default(0) @map("display_order")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  transactions SparksTransaction[]
+
+  @@map("sparks_offers")
+}
+
+model SparksTransaction {
+  id                    String                @id @default(uuid())
+  tutorId               String                @map("tutor_id")
+  type                  SparksTransactionType
+  amount                Int
+  balanceAfter          Int                   @map("balance_after")
+  proposalId            String?               @map("proposal_id")
+  offerId               String?               @map("offer_id")
+  stripePaymentIntentId String?               @unique @map("stripe_payment_intent_id")
+  pricePaidCents        Int?                  @map("price_paid_cents")
+  createdAt             DateTime              @default(now()) @map("created_at")
+
+  tutor    User         @relation("TutorSparksTransactions", fields: [tutorId], references: [id], onDelete: Cascade)
+  proposal Proposal?    @relation(fields: [proposalId], references: [id], onDelete: SetNull)
+  offer    SparksOffer? @relation(fields: [offerId], references: [id], onDelete: SetNull)
+
+  @@index([tutorId])
+  @@index([tutorId, createdAt])
+  @@map("sparks_transactions")
 }

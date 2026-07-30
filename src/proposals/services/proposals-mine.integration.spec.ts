@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { LearnRequestStatus, LearnRequestType, ProposalStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MessagingService } from '../../messaging/services/messaging.service';
+import { SparksService } from '../../sparks/services/sparks.service';
 import { ProposalsService } from './proposals.service';
 import { ProposalGroup } from '../dto/get-my-proposals-query.dto';
 
@@ -22,6 +23,7 @@ describe('ProposalsService.findMyProposals (integration, real DB)', () => {
         PrismaService,
         ProposalsService,
         { provide: MessagingService, useValue: { recomputeConversationActiveState: jest.fn() } },
+        { provide: SparksService, useValue: { spendSparksForProposal: jest.fn() } },
       ],
     }).compile();
 

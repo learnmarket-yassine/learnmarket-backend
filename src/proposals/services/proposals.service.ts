@@ -20,6 +20,7 @@ import { AuthUser } from '../../common/decorators/current-user.decorator';
 import { applyServiceFee, getFeeBreakdown } from '../../common/utils/fee.util';
 import { MessagingService } from '../../messaging/services/messaging.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SparksService } from '../../sparks/services/sparks.service';
 import { CreateProposalDto } from '../dto/create-proposal.dto';
 import {
   GetMyProposalsQueryDto,
@@ -49,6 +50,7 @@ export class ProposalsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly messaging: MessagingService,
+    private readonly sparksService: SparksService,
   ) {}
 
   private withFeeBreakdown<T extends { totalPrice: Prisma.Decimal }>(
@@ -124,6 +126,7 @@ export class ProposalsService {
           message: dto.message,
         },
       });
+      await this.sparksService.spendSparksForProposal(tx, tutorId, proposal.id);
 
       await tx.proposalSession.createMany({
         data: dto.sessionPlans.map((plan, index) => ({
@@ -313,21 +316,6 @@ export class ProposalsService {
       return this.withFeeBreakdown(withdrawn);
     });
   }
-
-  /**
-   * The actual acceptance side effects: Proposal -> ACCEPTED, auto-decline
-   * siblings, create Session rows, LearnRequest -> CLOSED. Triggered
-   * exclusively by the `payment_intent.succeeded` webhook (see
-   * PaymentsModule's webhook handler), which runs this inside its own
-   * transaction alongside marking the Payment SUCCEEDED so both effects
-   * commit atomically. There is no learnerId here to check ownership
-   * against -- by the time the webhook fires, the caller only has the
-   * proposalId from the PaymentIntent's metadata. Ownership/status were
-   * already verified when the PaymentIntent was created
-   * (PaymentsService.createPaymentIntentForProposal); the conditional
-   * updateMany guards below are the only correctness check that still
-   * matters here, and they're unaffected by this refactor.
-   */
   async runAcceptTransaction(
     tx: Prisma.TransactionClient,
     proposalId: string,
@@ -336,15 +324,6 @@ export class ProposalsService {
       where: { id: proposalId },
       include: { learnRequest: true },
     });
-
-    // Conditional updates, not blind ones -- this is the actual
-    // concurrency guard. Two acceptance triggers for two different PENDING
-    // proposals on the same OPEN learn request can both pass earlier
-    // checks before either commits; without a WHERE-guarded write here,
-    // both would succeed and the request would end up double-booked (two
-    // tutors both ACCEPTED, both owed a payout). Whichever transaction's
-    // conditional update loses the race affects 0 rows and aborts cleanly
-    // instead of silently overwriting.
     const learnRequestClosed = await tx.learnRequest.updateMany({
       where: { id: proposal.learnRequestId, status: LearnRequestStatus.OPEN },
       data: { status: LearnRequestStatus.CLOSED },

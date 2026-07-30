@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { SparksOffer } from '@prisma/client';
 import Stripe from 'stripe';
 
 @Injectable()
@@ -55,6 +56,22 @@ export class StripeService {
       },
       { idempotencyKey: `payment-intent-${proposalId}` },
     );
+  }
+
+  async createSparksPaymentIntent(
+    offer: SparksOffer,
+    tutorId: string,
+  ): Promise<Stripe.PaymentIntent> {
+    return this.stripe.paymentIntents.create({
+      amount: offer.priceCents,
+      currency: offer.currency,
+      metadata: {
+        type: 'sparks_purchase',
+        tutorId,
+        offerId: offer.id,
+        sparksAmount: String(offer.sparksAmount),
+      },
+    });
   }
 
   async createTransfer(
