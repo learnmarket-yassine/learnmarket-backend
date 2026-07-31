@@ -1,18 +1,11 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SubmitFeedbackDto } from '../dto/submit-feedback.dto';
-import { REVEAL_FALLBACK_DAYS } from '../constants/feedback.constants';
-
-export interface HiddenFeedback {
-  id: string;
-  authorId: string;
-  aboutUserId: string;
-  status: 'hidden';
-}
 
 @Injectable()
 export class FeedbackService {
@@ -35,6 +28,13 @@ export class FeedbackService {
     if (!isTutor && !isLearner)
       throw new NotFoundException('Proposal not found');
 
+    // Only the learner reviews the tutor -- not the other way around.
+    if (isTutor) {
+      throw new ForbiddenException(
+        'Only the learner can leave feedback for this course',
+      );
+    }
+
     if (
       proposal.status !== 'ACCEPTED' ||
       proposal.learnRequest.status !== 'COMPLETED'
@@ -53,15 +53,11 @@ export class FeedbackService {
       );
     }
 
-    const aboutUserId = isTutor
-      ? proposal.learnRequest.learnerId
-      : proposal.tutorId;
-
     return this.prisma.feedback.create({
       data: {
         proposalId,
         authorId,
-        aboutUserId,
+        aboutUserId: proposal.tutorId,
         rating: dto.rating,
         comment: dto.comment,
       },
@@ -80,28 +76,9 @@ export class FeedbackService {
       proposal.learnRequest.learnerId === viewerId;
     if (!isParticipant) throw new NotFoundException('Proposal not found');
 
-    const bothSubmitted = proposal.feedbacks.length === 2;
-    const deadlinePassed = proposal.learnRequest.completedAt
-      ? Date.now() - proposal.learnRequest.completedAt.getTime() >
-        REVEAL_FALLBACK_DAYS * 86_400_000
-      : false;
-    const isRevealed = bothSubmitted || deadlinePassed;
-
-    return proposal.feedbacks.map((f) => {
-      // The viewer's OWN submitted feedback is always visible to them --
-      // double-blind only hides the OTHER party's, never your own.
-      if (f.authorId === viewerId || isRevealed) return f;
-
-      // No rating/comment leaked in the hidden case -- omit the fields
-      // entirely, don't just mask them client-side.
-      const hidden: HiddenFeedback = {
-        id: f.id,
-        authorId: f.authorId,
-        aboutUserId: f.aboutUserId,
-        status: 'hidden',
-      };
-      return hidden;
-    });
+    // One-directional now -- at most the learner's feedback about the
+    // tutor, visible to both participants as soon as it's submitted.
+    return proposal.feedbacks;
   }
 
   async getTutorRatingSummary(tutorId: string) {
@@ -110,11 +87,36 @@ export class FeedbackService {
       _avg: { rating: true },
       _count: true,
     });
-    // null average (not 0) when reviewCount is 0 -- a tutor with no reviews
-    // yet should show "No reviews yet", not a misleading "0 stars"
     return {
       averageRating: result._avg.rating ?? null,
       reviewCount: result._count,
     };
+  }
+
+  async getTutorFeedbackList(tutorId: string) {
+    const feedbacks = await this.prisma.feedback.findMany({
+      where: { aboutUserId: tutorId },
+      include: {
+        author: {
+          select: { id: true, firstname: true, lastname: true, avatar: true },
+        },
+        proposal: { include: { learnRequest: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return feedbacks.map(
+      ({ id, rating, comment, createdAt, author, proposal }) => ({
+        id,
+        rating,
+        comment,
+        createdAt,
+        author,
+        learnRequestTitle: proposal.learnRequest.title,
+        engagementStart: proposal.createdAt,
+        engagementEnd: proposal.learnRequest.completedAt,
+        billedAmount: proposal.totalPrice,
+      }),
+    );
   }
 }
