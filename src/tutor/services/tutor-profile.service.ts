@@ -84,6 +84,7 @@ export class TutorProfileService {
         country: true,
         city: true,
         languages: { select: { language: true, level: true } },
+        education: true,
         tutorProfile: {
           select: {
             videoIntroUrl: true,

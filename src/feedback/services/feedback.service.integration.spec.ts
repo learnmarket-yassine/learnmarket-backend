@@ -1,8 +1,11 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../prisma/prisma.service';
-import { FeedbackService, HiddenFeedback } from './feedback.service';
-import { REVEAL_FALLBACK_DAYS } from '../constants/feedback.constants';
+import { FeedbackService } from './feedback.service';
 
 describe('FeedbackService (integration, real DB)', () => {
   let moduleRef: TestingModule;
@@ -144,7 +147,15 @@ describe('FeedbackService (integration, real DB)', () => {
       ).rejects.toThrow(ConflictException);
     });
 
-    it('allows both the tutor and the learner to submit once the course is COMPLETED', async () => {
+    it('rejects the tutor attempting to submit -- only the learner reviews the tutor', async () => {
+      const { proposal } = await completedProposal();
+
+      await expect(
+        feedback.submitFeedback(tutorId, proposal.id, { rating: 4 }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('sets aboutUserId to the tutor when the learner submits', async () => {
       const { proposal } = await completedProposal();
 
       const learnerFeedback = await feedback.submitFeedback(
@@ -152,18 +163,12 @@ describe('FeedbackService (integration, real DB)', () => {
         proposal.id,
         { rating: 5, comment: 'Awesome tutor' },
       );
-      const tutorFeedback = await feedback.submitFeedback(
-        tutorId,
-        proposal.id,
-        { rating: 4, comment: 'Diligent learner' },
-      );
 
       expect(learnerFeedback.aboutUserId).toBe(tutorId);
-      expect(tutorFeedback.aboutUserId).toBe(learnerId);
     });
   });
 
-  describe('getFeedbackForProposal double-blind reveal', () => {
+  describe('getFeedbackForProposal', () => {
     it('404s a non-participant attempting to read', async () => {
       const { proposal } = await completedProposal();
       await feedback.submitFeedback(learnerId, proposal.id, { rating: 5 });
@@ -173,108 +178,32 @@ describe('FeedbackService (integration, real DB)', () => {
       ).rejects.toThrow(NotFoundException);
     });
 
-    it('hides the other party rating/comment from the raw response until both submit, but always shows the viewer their own', async () => {
+    it("shows the learner's feedback to both the tutor and the learner as soon as it is submitted", async () => {
       const { proposal } = await completedProposal();
       await feedback.submitFeedback(learnerId, proposal.id, {
         rating: 2,
-        comment: 'super secret learner opinion',
+        comment: 'learner opinion',
       });
 
       const tutorView = await feedback.getFeedbackForProposal(
         tutorId,
         proposal.id,
       );
-      expect(tutorView).toHaveLength(1);
-      const hidden = tutorView[0] as HiddenFeedback;
-      expect(hidden.status).toBe('hidden');
-      expect(hidden).not.toHaveProperty('rating');
-      expect(hidden).not.toHaveProperty('comment');
-      expect(JSON.stringify(tutorView)).not.toContain('super secret');
-      expect(JSON.stringify(tutorView)).not.toContain('"rating"');
-
-      // The learner viewing their OWN feedback always sees it, even though
-      // the tutor hasn't submitted yet.
       const learnerView = await feedback.getFeedbackForProposal(
         learnerId,
         proposal.id,
       );
-      expect(learnerView).toHaveLength(1);
-      expect(learnerView[0]).toMatchObject({
-        rating: 2,
-        comment: 'super secret learner opinion',
-      });
 
-      await feedback.submitFeedback(tutorId, proposal.id, {
-        rating: 4,
-        comment: 'tutor opinion',
-      });
-
-      const tutorViewAfter = await feedback.getFeedbackForProposal(
-        tutorId,
-        proposal.id,
-      );
-      const learnerViewAfter = await feedback.getFeedbackForProposal(
-        learnerId,
-        proposal.id,
-      );
-      expect(tutorViewAfter).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            rating: 2,
-            comment: 'super secret learner opinion',
-          }),
-          expect.objectContaining({ rating: 4, comment: 'tutor opinion' }),
-        ]),
-      );
-      expect(learnerViewAfter).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            rating: 2,
-            comment: 'super secret learner opinion',
-          }),
-          expect.objectContaining({ rating: 4, comment: 'tutor opinion' }),
-        ]),
-      );
-    });
-
-    it('reveals both sides once the fallback deadline has passed, even if only one party ever submitted', async () => {
-      const longAgo = new Date(
-        Date.now() - (REVEAL_FALLBACK_DAYS + 1) * 86_400_000,
-      );
-      const { proposal } = await completedProposal(longAgo);
-
-      await feedback.submitFeedback(learnerId, proposal.id, {
-        rating: 1,
-        comment: 'only the learner ever submits',
-      });
-
-      const tutorView = await feedback.getFeedbackForProposal(
-        tutorId,
-        proposal.id,
-      );
       expect(tutorView).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({
-            rating: 1,
-            comment: 'only the learner ever submits',
-          }),
+          expect.objectContaining({ rating: 2, comment: 'learner opinion' }),
         ]),
       );
-    });
-
-    it('does not reveal before the fallback deadline when only one party submitted', async () => {
-      const recentlyCompleted = new Date(
-        Date.now() - (REVEAL_FALLBACK_DAYS - 1) * 86_400_000,
+      expect(learnerView).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ rating: 2, comment: 'learner opinion' }),
+        ]),
       );
-      const { proposal } = await completedProposal(recentlyCompleted);
-
-      await feedback.submitFeedback(learnerId, proposal.id, { rating: 3 });
-
-      const tutorView = await feedback.getFeedbackForProposal(
-        tutorId,
-        proposal.id,
-      );
-      expect((tutorView[0] as HiddenFeedback).status).toBe('hidden');
     });
   });
 

@@ -11,9 +11,10 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { FeedbackService } from '../services/feedback.service';
 import { SubmitFeedbackDto } from '../dto/submit-feedback.dto';
 
-// No role guard here -- either participant (tutor or learner) on the
-// proposal may call these. The ownership check inside the service is the
-// actual security boundary, same discipline as ShortlistedProposalsController.
+// No role guard here -- either participant may read, but the service
+// rejects a tutor trying to POST (only the learner reviews the tutor).
+// The ownership check inside the service is the actual security boundary,
+// same discipline as ShortlistedProposalsController.
 @Controller('proposals/:id/feedback')
 export class FeedbackController {
   constructor(private readonly feedback: FeedbackService) {}
