@@ -5,7 +5,8 @@ import { UploadService } from '../../storage/upload.service';
 import { SessionsGateway } from '../gateways/sessions.gateway';
 import { AnnouncementsService } from './announcements.service';
 import { SessionsService } from './sessions.service';
-import { ZoomService } from './zoom.service';
+import { DailyService } from './daily.service';
+import { PayoutsService } from '../../payments/services/payouts.service';
 
 describe('AnnouncementsService (integration, real DB)', () => {
   let moduleRef: TestingModule;
@@ -23,7 +24,7 @@ describe('AnnouncementsService (integration, real DB)', () => {
         PrismaService,
         SessionsService,
         AnnouncementsService,
-        { provide: ZoomService, useValue: {} },
+        { provide: DailyService, useValue: {} },
         {
           provide: UploadService,
           useValue: {
@@ -33,6 +34,7 @@ describe('AnnouncementsService (integration, real DB)', () => {
           },
         },
         { provide: SessionsGateway, useValue: { emitParticipantJoined: jest.fn() } },
+        { provide: PayoutsService, useValue: {} },
       ],
     }).compile();
 

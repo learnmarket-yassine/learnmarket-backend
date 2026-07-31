@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Get,
   HttpCode,
@@ -12,6 +13,8 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { SessionsService } from '../services/sessions.service';
+import { SubmitSessionSummaryDto } from '../dto/submit-session-summary.dto';
+import { DisputeSessionDto } from '../dto/dispute-session.dto';
 
 @Controller('sessions')
 export class SessionsController {
@@ -34,9 +37,35 @@ export class SessionsController {
     return this.sessions.getMeetingDetails(userId, id);
   }
 
-  @Post(':id/join')
+  // --- Parallel confirmation gate --------------------------------------
+
+  @Post(':id/summary')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.TUTOR)
+  submitSummary(
+    @CurrentUser('id') userId: string,
+    @Param('id') id: string,
+    @Body() dto: SubmitSessionSummaryDto,
+  ) {
+    return this.sessions.submitSessionSummary(userId, id, dto.summary);
+  }
+
+  @Post(':id/confirm')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.LEARNER)
   @HttpCode(HttpStatus.OK)
-  join(@CurrentUser('id') userId: string, @Param('id') id: string) {
-    return this.sessions.join(userId, id);
+  confirm(@CurrentUser('id') userId: string, @Param('id') id: string) {
+    return this.sessions.confirmSession(userId, id);
+  }
+
+  @Post(':id/dispute')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.LEARNER)
+  dispute(
+    @CurrentUser('id') userId: string,
+    @Param('id') id: string,
+    @Body() dto: DisputeSessionDto,
+  ) {
+    return this.sessions.disputeSession(userId, id, dto.reason);
   }
 }

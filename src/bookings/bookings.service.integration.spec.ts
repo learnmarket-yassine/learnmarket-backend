@@ -2,7 +2,8 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../prisma/prisma.service';
 import { HoldsService } from '../holds/services/holds.service';
 import { SessionsService } from '../sessions/services/sessions.service';
-import { ZoomService, ZoomMeeting } from '../sessions/services/zoom.service';
+import { DailyService, DailyRoom } from '../sessions/services/daily.service';
+import { PayoutsService } from '../payments/services/payouts.service';
 import { SessionsGateway } from '../sessions/gateways/sessions.gateway';
 import { UploadService } from '../storage/upload.service';
 import { BookingsService } from './services/bookings.service';
@@ -12,21 +13,19 @@ describe('BookingsService (integration, real DB)', () => {
   let prisma: PrismaService;
   let holds: HoldsService;
   let bookings: BookingsService;
-  let createMeetingMock: jest.Mock;
+  let createRoomMock: jest.Mock;
 
   let tutorId: string;
   let learnerId: string;
   let sessionAId: string;
 
-  const testMeeting: ZoomMeeting = {
-    id: 84912052310,
-    join_url: 'https://zoom.us/j/testmeeting',
-    start_url: 'https://zoom.us/s/testmeeting?zak=host-token',
-    password: 'pw123',
+  const testRoom: DailyRoom = {
+    name: 'test-room',
+    url: 'https://learnmarket.daily.co/test-room',
   };
 
   beforeAll(async () => {
-    createMeetingMock = jest.fn().mockResolvedValue(testMeeting);
+    createRoomMock = jest.fn().mockResolvedValue(testRoom);
 
     moduleRef = await Test.createTestingModule({
       providers: [
@@ -35,14 +34,18 @@ describe('BookingsService (integration, real DB)', () => {
         BookingsService,
         SessionsService,
         {
-          provide: ZoomService,
-          useValue: { createMeeting: createMeetingMock },
+          provide: DailyService,
+          useValue: {
+            createRoom: createRoomMock,
+            updateRoomExpiry: jest.fn().mockResolvedValue(undefined),
+          },
         },
         { provide: UploadService, useValue: {} },
         {
           provide: SessionsGateway,
           useValue: { emitParticipantJoined: jest.fn() },
         },
+        { provide: PayoutsService, useValue: {} },
       ],
     }).compile();
 
@@ -57,7 +60,7 @@ describe('BookingsService (integration, real DB)', () => {
   });
 
   beforeEach(async () => {
-    createMeetingMock.mockClear();
+    createRoomMock.mockClear();
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
     const [tutor, learner] = await Promise.all([
@@ -157,8 +160,8 @@ describe('BookingsService (integration, real DB)', () => {
     expect(learnerInRange).toHaveLength(1);
   });
 
-  it('still confirms the booking when the Zoom API fails during provisioning', async () => {
-    createMeetingMock.mockRejectedValueOnce(new Error('Zoom API unavailable'));
+  it('still confirms the booking when the Daily API fails during provisioning', async () => {
+    createRoomMock.mockRejectedValueOnce(new Error('Daily API unavailable'));
 
     const hold = await holds.createSlotHold(
       tutorId,
@@ -171,6 +174,6 @@ describe('BookingsService (integration, real DB)', () => {
     const provisioned = await prisma.session.findUniqueOrThrow({
       where: { id: sessionAId },
     });
-    expect(provisioned.zoomMeetingId).toBeNull();
+    expect(provisioned.dailyRoomName).toBeNull();
   });
 });

@@ -633,6 +633,9 @@ enum SessionStatus {
   PENDING_SCHEDULE // unlocked, learner can pick a time
   HELD // has an ACTIVE SlotHold
   BOOKED // converted to a CONFIRMED Booking
+  PENDING_REVIEW // booked time elapsed, tutor attended -- awaiting the
+  // two independent confirmation-gate branches (tutor summary + learner
+  // confirm/dispute) before COMPLETED
   COMPLETED // session happened (mirrors Booking.status = COMPLETED)
   CANCELLED
 
@@ -646,12 +649,21 @@ model Session {
   title           String
   objective       String?       @db.Text
   status          SessionStatus @default(LOCKED)
-  zoomMeetingId   String?       @map("zoom_meeting_id")
-  zoomJoinUrl     String?       @map("zoom_join_url")
-  zoomStartUrl    String?       @map("zoom_start_url")
-  zoomPassword    String?       @map("zoom_password")
+  dailyRoomName   String?       @unique @map("daily_room_name")
+  dailyRoomUrl    String?       @map("daily_room_url")
   tutorJoinedAt   DateTime?     @map("tutor_joined_at")
   learnerJoinedAt DateTime?     @map("learner_joined_at")
+
+  // Parallel confirmation gate -- two independent tracks, deliberately not
+  // a single sequential status. Completion is a pure AND-gate on
+  // summarySubmittedAt + learnerConfirmedAt both becoming non-null, checked
+  // at write time (SessionsService.tryCompleteIfBothBranchesReady), not
+  // stored as a separate derived flag.
+  summary            String?   @db.Text
+  summarySubmittedAt DateTime? @map("summary_submitted_at")
+  learnerConfirmedAt DateTime? @map("learner_confirmed_at")
+  disputeReason      String?   @db.Text @map("dispute_reason")
+  disputedAt         DateTime? @map("disputed_at")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")

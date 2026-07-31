@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PaymentStatus, PayoutStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StripeService } from './stripe.service';
+import { DailyService } from '../../sessions/services/daily.service';
 import { PaymentsService } from './payments.service';
 
 describe('PaymentsService.cancelAndRefund', () => {
@@ -31,6 +32,7 @@ describe('PaymentsService.cancelAndRefund', () => {
         PaymentsService,
         { provide: PrismaService, useValue: prisma },
         { provide: StripeService, useValue: stripe },
+        { provide: DailyService, useValue: { deleteRoom: jest.fn() } },
       ],
     }).compile();
 
