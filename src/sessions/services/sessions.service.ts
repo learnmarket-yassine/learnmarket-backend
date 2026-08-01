@@ -160,6 +160,10 @@ export class SessionsService {
       return { status: 'not_provisioned' as const, canJoinYet: false };
     }
 
+    if (session.booking && this.hasSessionEnded(session.booking)) {
+      return { status: 'not_provisioned' as const, canJoinYet: false };
+    }
+
     const isTutor = this.isTutor(session, userId);
     const canJoinYet = this.computeCanJoinYet(session.booking);
     const user = await this.prisma.user.findUniqueOrThrow({
@@ -167,10 +171,6 @@ export class SessionsService {
       select: { firstname: true, lastname: true },
     });
 
-    // is_owner is computed strictly server-side from the verified
-    // participant role determined by assertParticipant above -- never taken
-    // from anything the client sends. Tokens are minted fresh per call and
-    // never cached/stored.
     const token = await this.dailyService.createMeetingToken({
       roomName: session.dailyRoomName,
       userId,
@@ -198,14 +198,11 @@ export class SessionsService {
       now <= booking.endTime.getTime() + JOIN_GRACE_AFTER_MS
     );
   }
-  /**
-   * The webhook-verified counterpart to the old click-based join() -- called
-   * only from DailyWebhookController after signature verification, never
-   * reachable from a client request directly. Deliberately silent (no throw)
-   * on an unknown room or unrecognized user_id: Daily may retry
-   * participant.joined delivery, and an unrecognized room/user here is a
-   * "nothing to do" case, not a delivery failure worth surfacing back to Daily.
-   */
+
+  private hasSessionEnded(booking: { endTime: Date }): boolean {
+    return Date.now() > booking.endTime.getTime() + JOIN_GRACE_AFTER_MS;
+  }
+
   async recordVerifiedJoin(
     dailyRoomName: string,
     dailyUserId: string,
@@ -239,13 +236,6 @@ export class SessionsService {
       }
     }
   }
-
-  // ---------------------------------------------------------------------
-  // Parallel confirmation gate -- two independent branches (tutor summary,
-  // learner confirm/dispute) must both resolve before COMPLETED fires.
-  // Neither branch reads or reacts to the other's state; both call the
-  // same no-op-unless-both-ready check below after writing their own field.
-  // ---------------------------------------------------------------------
 
   async submitSessionSummary(
     userId: string,
@@ -317,13 +307,6 @@ export class SessionsService {
     });
   }
 
-  /**
-   * The one place both branches converge. Public (not private): the hourly
-   * auto-resolve cron calls this too, after backfilling a stale branch.
-   * Safe against concurrent/duplicate calls -- completeSessionCascade's own
-   * guarded updateMany makes a second simultaneous caller a no-op rather
-   * than a double payout.
-   */
   async tryCompleteIfBothBranchesReady(sessionId: string): Promise<void> {
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
@@ -340,19 +323,10 @@ export class SessionsService {
     }
   }
 
-  /**
-   * The shared completion cascade -- session -> COMPLETED, next-session
-   * unlock, learn-request completion, payout trigger. Used both by the
-   * no-show path (BookingsCompletionCron, immediate) and by the
-   * confirmation gate (tryCompleteIfBothBranchesReady, once both branches
-   * resolve). This is the one place COMPLETED should ever originate from.
-   */
   async completeSessionCascade(
     tx: Prisma.TransactionClient,
     sessionId: string,
   ): Promise<PayoutTrigger | null> {
-    // Guarded so a second, racing caller is a safe no-op instead of a
-    // duplicate payout.
     const claimed = await tx.session.updateMany({
       where: { id: sessionId, status: { not: SessionStatus.COMPLETED } },
       data: { status: SessionStatus.COMPLETED },

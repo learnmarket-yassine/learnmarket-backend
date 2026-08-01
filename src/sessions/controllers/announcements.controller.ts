@@ -58,6 +58,16 @@ export class AnnouncementsController {
     return this.announcements.getAttachmentUrl(userId, id, attachmentId);
   }
 
+  @Delete('announcements/:id/attachments/:attachmentId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  removeAttachment(
+    @CurrentUser('id') userId: string,
+    @Param('id') id: string,
+    @Param('attachmentId') attachmentId: string,
+  ) {
+    return this.announcements.removeAttachment(userId, id, attachmentId);
+  }
+
   @Post('announcements/:id/comments')
   @HttpCode(HttpStatus.CREATED)
   addComment(
