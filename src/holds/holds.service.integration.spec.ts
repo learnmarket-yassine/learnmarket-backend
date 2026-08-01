@@ -1,12 +1,17 @@
 import { ConflictException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../prisma/prisma.service';
+import { SessionsService } from '../sessions/services/sessions.service';
+import { ZoomService, ZoomMeeting } from '../sessions/services/zoom.service';
+import { SessionsGateway } from '../sessions/gateways/sessions.gateway';
+import { UploadService } from '../storage/upload.service';
 import { HoldsService } from './services/holds.service';
 
 describe('HoldsService (integration, real DB)', () => {
   let moduleRef: TestingModule;
   let prisma: PrismaService;
   let holds: HoldsService;
+  let createMeetingMock: jest.Mock;
 
   let tutorId: string;
   let learnerId: string;
@@ -14,9 +19,28 @@ describe('HoldsService (integration, real DB)', () => {
   let sessionBId: string;
   let proposalId: string;
 
+  const testMeeting: ZoomMeeting = {
+    id: 84912052310,
+    join_url: 'https://zoom.us/j/testmeeting',
+    start_url: 'https://zoom.us/s/testmeeting?zak=host-token',
+    password: 'pw123',
+  };
+
   beforeAll(async () => {
+    createMeetingMock = jest.fn().mockResolvedValue(testMeeting);
+
     moduleRef = await Test.createTestingModule({
-      providers: [PrismaService, HoldsService],
+      providers: [
+        PrismaService,
+        HoldsService,
+        SessionsService,
+        { provide: ZoomService, useValue: { createMeeting: createMeetingMock } },
+        { provide: UploadService, useValue: {} },
+        {
+          provide: SessionsGateway,
+          useValue: { emitParticipantJoined: jest.fn() },
+        },
+      ],
     }).compile();
 
     prisma = moduleRef.get(PrismaService);
@@ -29,6 +53,8 @@ describe('HoldsService (integration, real DB)', () => {
   });
 
   beforeEach(async () => {
+    createMeetingMock.mockClear();
+    createMeetingMock.mockResolvedValue(testMeeting);
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
     const [tutor, learner] = await Promise.all([
@@ -271,6 +297,50 @@ describe('HoldsService (integration, real DB)', () => {
       where: { id: sessionAId },
     });
     expect(session.status).toBe('BOOKED');
+  });
+
+  it('provisions a Zoom meeting on the session once a hold is confirmed', async () => {
+    const hold = await holds.createSlotHold(
+      tutorId,
+      learnerId,
+      sessionAId,
+      new Date('2027-01-01T10:00:00.000Z'),
+      new Date('2027-01-01T11:00:00.000Z'),
+    );
+
+    await holds.confirmSlotHold(hold.id);
+
+    expect(createMeetingMock).toHaveBeenCalledTimes(1);
+    const session = await prisma.session.findUniqueOrThrow({
+      where: { id: sessionAId },
+    });
+    expect(session.zoomMeetingId).toBe(String(testMeeting.id));
+    expect(session.zoomJoinUrl).toBe(testMeeting.join_url);
+    expect(session.zoomStartUrl).toBe(testMeeting.start_url);
+  });
+
+  it('still confirms the booking when the Zoom API fails during provisioning', async () => {
+    createMeetingMock.mockRejectedValue(new Error('Zoom API unavailable'));
+
+    const hold = await holds.createSlotHold(
+      tutorId,
+      learnerId,
+      sessionAId,
+      new Date('2027-01-01T10:00:00.000Z'),
+      new Date('2027-01-01T11:00:00.000Z'),
+    );
+
+    // Must resolve, not throw -- a Zoom outage can never block a booking
+    // that has already been confirmed in the database.
+    const booking = await holds.confirmSlotHold(hold.id);
+    expect(booking?.status).toBe('CONFIRMED');
+
+    const session = await prisma.session.findUniqueOrThrow({
+      where: { id: sessionAId },
+    });
+    expect(session.status).toBe('BOOKED');
+    expect(session.zoomJoinUrl).toBeNull();
+    expect(session.zoomStartUrl).toBeNull();
   });
 
   it('createSlotHold resets a *different* stale-held session back to PENDING_SCHEDULE when cleaning up', async () => {

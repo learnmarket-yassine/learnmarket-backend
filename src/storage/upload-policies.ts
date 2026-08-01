@@ -49,6 +49,13 @@ export const UPLOAD_POLICIES: Record<UploadPurpose, UploadPolicy> = {
     visibility: 'private',
     requiredRole: UserRole.TUTOR,
   },
+  [UploadPurpose.SESSION_ATTACHMENT]: {
+    keyPrefix: 'session-attachments',
+    maxSizeBytes: 20 * 1024 * 1024,
+    allowedMimeTypes: DOCUMENT_MIME_TYPES,
+    visibility: 'private',
+    // No requiredRole -- both the tutor and the learner in a session can share files.
+  },
 };
 
 export function getUploadPolicy(purpose: UploadPurpose): UploadPolicy {

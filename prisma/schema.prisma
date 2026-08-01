@@ -69,6 +69,7 @@ model User {
   tutorConversations          Conversation[]               @relation("TutorConversations")
   learnerConversations        Conversation[]               @relation("LearnerConversations")
   sentMessages                Message[]                    @relation("SentMessages")
+  sessionAttachments          SessionAttachment[]           @relation("SessionAttachmentUploader")
 
   @@index([email])
   @@index([role])
@@ -577,17 +578,45 @@ model Session {
   objective     String?       @db.Text
   status        SessionStatus @default(LOCKED)
 
+  // Zoom meeting provisioned once the session's Booking is confirmed.
+  // zoomStartUrl carries a host-privilege token -- it must only ever be
+  // returned to the session's own tutor (see SessionsService.getMeetingDetails).
+  zoomMeetingId   String?   @map("zoom_meeting_id")
+  zoomJoinUrl     String?   @map("zoom_join_url")
+  zoomStartUrl    String?   @map("zoom_start_url")
+  zoomPassword    String?   @map("zoom_password")
+  tutorJoinedAt   DateTime? @map("tutor_joined_at")
+  learnerJoinedAt DateTime? @map("learner_joined_at")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  proposal Proposal  @relation(fields: [proposalId], references: [id], onDelete: Cascade)
-  slotHold SlotHold?
-  booking  Booking?
+  proposal    Proposal            @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  slotHold    SlotHold?
+  booking     Booking?
+  attachments SessionAttachment[]
 
   @@unique([proposalId, sessionNumber])
   @@index([proposalId])
   @@index([proposalId, status])
   @@map("sessions")
+}
+
+model SessionAttachment {
+  id         String   @id @default(uuid())
+  sessionId  String   @map("session_id")
+  uploaderId String   @map("uploader_id")
+  key        String
+  fileName   String   @map("file_name")
+  mimeType   String?  @map("mime_type")
+  fileSize   Int?     @map("file_size")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  session  Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  uploader User    @relation("SessionAttachmentUploader", fields: [uploaderId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@map("session_attachments")
 }
 
 enum HoldStatus {

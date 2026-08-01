@@ -6,10 +6,14 @@ import {
 } from '@nestjs/common';
 import { SessionStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SessionsService } from '../../sessions/services/sessions.service';
 
 @Injectable()
 export class BookingsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly sessionsService: SessionsService,
+  ) {}
 
   findConfirmedByTutor(tutorId: string) {
     return this.prisma.booking.findMany({
@@ -38,8 +42,8 @@ export class BookingsService {
       throw new ConflictException('Only confirmed bookings can be cancelled');
     }
 
-    return this.prisma.$transaction(async (tx) => {
-      const cancelled = await tx.booking.update({
+    const cancelled = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.booking.update({
         where: { id: bookingId },
         data: { status: 'CANCELLED' },
       });
@@ -55,7 +59,15 @@ export class BookingsService {
         });
       }
 
-      return cancelled;
+      return updated;
     });
+
+    // Outside the transaction, and never throws -- a Zoom cleanup failure
+    // must not undo a cancellation that already committed.
+    if (booking.sessionId) {
+      await this.sessionsService.deprovisionMeeting(booking.sessionId);
+    }
+
+    return cancelled;
   }
 }

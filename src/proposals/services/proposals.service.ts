@@ -28,10 +28,25 @@ import { UpdateProposalDto } from '../dto/update-proposal.dto';
 
 // sessions include their slotHold (if any) so a client can resume an
 // in-progress HELD session (check status + expiresAt) without a separate
-// endpoint.
+// endpoint. Explicit select (not a bare include) so the Session model's
+// zoom* columns -- zoomStartUrl in particular carries a host-privilege
+// token -- never ride along on this general-purpose payload. Meeting
+// details are only ever served through SessionsService.getMeetingDetails.
 const PROPOSAL_INCLUDE = {
   sessionPlans: true,
-  sessions: { include: { slotHold: true } },
+  sessions: {
+    select: {
+      id: true,
+      proposalId: true,
+      sessionNumber: true,
+      title: true,
+      objective: true,
+      status: true,
+      createdAt: true,
+      updatedAt: true,
+      slotHold: true,
+    },
+  },
 } as const;
 
 @Injectable()

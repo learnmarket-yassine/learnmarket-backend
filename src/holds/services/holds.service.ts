@@ -3,10 +3,12 @@ import {
   ForbiddenException,
   GoneException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, SessionStatus } from '@prisma/client';
+import { Booking, Prisma, SessionStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SessionsService } from '../../sessions/services/sessions.service';
 import { CreateHoldDto } from '../dto/create-hold.dto';
 
 const HOLD_DURATION_MS = 10 * 60 * 1000;
@@ -28,7 +30,12 @@ const HOLD_REQUESTABLE_STATUSES: SessionStatus[] = [
 
 @Injectable()
 export class HoldsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(HoldsService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly sessionsService: SessionsService,
+  ) {}
 
   async requestHold(learnerId: string, dto: CreateHoldDto) {
     const session = await this.prisma.session.findUnique({
@@ -135,8 +142,9 @@ export class HoldsService {
     });
     if (!hold) throw new NotFoundException('Slot hold not found');
 
+    let booking: Booking;
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      booking = await this.prisma.$transaction(async (tx) => {
         const result = await tx.slotHold.updateMany({
           where: {
             id: slotHoldId,
@@ -149,7 +157,7 @@ export class HoldsService {
           throw new GoneException('This hold has expired');
         }
 
-        const booking = await tx.booking.create({
+        const created = await tx.booking.create({
           data: {
             tutorId: hold.tutorId,
             learnerId: hold.learnerId,
@@ -166,12 +174,26 @@ export class HoldsService {
           data: { status: SessionStatus.BOOKED },
         });
 
-        return booking;
+        return created;
       });
     } catch (error) {
       if (error instanceof GoneException) throw error;
       this.handleOverlapError(error, 'no_overlapping_confirmed_bookings');
     }
+
+    // Zoom meeting provisioning happens outside the transaction and must
+    // never block a booking that has already been confirmed -- a Zoom
+    // outage degrades to "session shows not_provisioned, tutor can retry",
+    // not a failed booking. provisionMeeting already swallows its own
+    // errors; this try/catch is defense-in-depth around the DB update it
+    // performs.
+    try {
+      await this.sessionsService.provisionMeeting(booking.sessionId!);
+    } catch (err) {
+      this.logger.error('Zoom meeting provisioning failed', err);
+    }
+
+    return booking;
   }
 
   async releaseSlotHold(slotHoldId: string) {

@@ -23,6 +23,7 @@ import { LearnRequestsModule } from './learn-requests/learn-requests.module';
 import { HoldsModule } from './holds/holds.module';
 import { BookingsModule } from './bookings/bookings.module';
 import { MessagingModule } from './messaging/messaging.module';
+import { SessionsModule } from './sessions/sessions.module';
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { MessagingModule } from './messaging/messaging.module';
     HoldsModule,
     BookingsModule,
     MessagingModule,
+    SessionsModule,
   ],
   controllers: [AppController],
   providers: [
