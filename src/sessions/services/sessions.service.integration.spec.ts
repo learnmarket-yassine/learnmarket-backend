@@ -3,7 +3,6 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UploadService } from '../../storage/upload.service';
 import { PayoutsService } from '../../payments/services/payouts.service';
-import { SessionsGateway } from '../gateways/sessions.gateway';
 import { SessionsService } from './sessions.service';
 import { DailyRoom, DailyService } from './daily.service';
 
@@ -14,7 +13,6 @@ describe('SessionsService (integration, real DB)', () => {
   let createRoomMock: jest.Mock;
   let deleteRoomMock: jest.Mock;
   let createMeetingTokenMock: jest.Mock;
-  let emitParticipantJoinedMock: jest.Mock;
   let recordPayoutMock: jest.Mock;
   let releasePayoutMock: jest.Mock;
 
@@ -43,7 +41,6 @@ describe('SessionsService (integration, real DB)', () => {
         async (params: { userId: string; isOwner: boolean }) =>
           `token-for-${params.userId}-owner-${params.isOwner}`,
       );
-    emitParticipantJoinedMock = jest.fn();
     // No Payment fixture in these tests -- nothing payable, so the cascade's
     // payout branch is a no-op by default. Gate tests assert on session/
     // learnRequest status transitions, not payout amounts.
@@ -64,10 +61,6 @@ describe('SessionsService (integration, real DB)', () => {
           },
         },
         { provide: UploadService, useValue: {} },
-        {
-          provide: SessionsGateway,
-          useValue: { emitParticipantJoined: emitParticipantJoinedMock },
-        },
         {
           provide: PayoutsService,
           useValue: {
@@ -92,7 +85,6 @@ describe('SessionsService (integration, real DB)', () => {
     createRoomMock.mockResolvedValue(testRoom);
     deleteRoomMock.mockClear();
     createMeetingTokenMock.mockClear();
-    emitParticipantJoinedMock.mockClear();
     recordPayoutMock.mockClear();
     recordPayoutMock.mockResolvedValue(null);
     releasePayoutMock.mockClear();
@@ -358,7 +350,6 @@ describe('SessionsService (integration, real DB)', () => {
       expect(second.tutorJoinedAt?.toISOString()).toBe(
         first.tutorJoinedAt?.toISOString(),
       );
-      expect(emitParticipantJoinedMock).toHaveBeenCalledTimes(1);
     });
 
     it('sets learnerJoinedAt independently of tutorJoinedAt', async () => {
@@ -370,10 +361,6 @@ describe('SessionsService (integration, real DB)', () => {
       });
       expect(session.learnerJoinedAt).not.toBeNull();
       expect(session.tutorJoinedAt).toBeNull();
-      expect(emitParticipantJoinedMock).toHaveBeenCalledWith(
-        sessionId,
-        'LEARNER',
-      );
     });
 
     it('silently no-ops for a user_id that matches no participant', async () => {
@@ -388,14 +375,12 @@ describe('SessionsService (integration, real DB)', () => {
       });
       expect(session.tutorJoinedAt).toBeNull();
       expect(session.learnerJoinedAt).toBeNull();
-      expect(emitParticipantJoinedMock).not.toHaveBeenCalled();
     });
 
     it('silently no-ops for an unknown room name', async () => {
       await expect(
         sessions.recordVerifiedJoin('no-such-room', tutorId),
       ).resolves.toBeUndefined();
-      expect(emitParticipantJoinedMock).not.toHaveBeenCalled();
     });
   });
 

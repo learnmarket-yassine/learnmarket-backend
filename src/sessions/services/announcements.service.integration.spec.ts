@@ -2,7 +2,6 @@ import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UploadService } from '../../storage/upload.service';
-import { SessionsGateway } from '../gateways/sessions.gateway';
 import { AnnouncementsService } from './announcements.service';
 import { SessionsService } from './sessions.service';
 import { DailyService } from './daily.service';
@@ -33,7 +32,6 @@ describe('AnnouncementsService (integration, real DB)', () => {
             getSignedDownloadUrl: jest.fn(),
           },
         },
-        { provide: SessionsGateway, useValue: { emitParticipantJoined: jest.fn() } },
         { provide: PayoutsService, useValue: {} },
       ],
     }).compile();

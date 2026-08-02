@@ -1,7 +1,5 @@
 import {
   ConflictException,
-  forwardRef,
-  Inject,
   Injectable,
   Logger,
   NotFoundException,
@@ -18,7 +16,6 @@ import {
   PayoutsService,
   PayoutTrigger,
 } from '../../payments/services/payouts.service';
-import { SessionsGateway } from '../gateways/sessions.gateway';
 
 const JOIN_WINDOW_BEFORE_MS = 15 * 60_000;
 const JOIN_GRACE_AFTER_MS = 30 * 60_000;
@@ -45,8 +42,6 @@ export class SessionsService {
     private readonly prisma: PrismaService,
     private readonly dailyService: DailyService,
     private readonly payoutsService: PayoutsService,
-    @Inject(forwardRef(() => SessionsGateway))
-    private readonly sessionsGateway: SessionsGateway,
   ) {}
 
   async assertParticipant(userId: string, sessionId: string) {
@@ -219,21 +214,15 @@ export class SessionsService {
 
     const now = new Date();
     if (isTutor) {
-      const updated = await this.prisma.session.updateMany({
+      await this.prisma.session.updateMany({
         where: { id: session.id, tutorJoinedAt: null },
         data: { tutorJoinedAt: now },
       });
-      if (updated.count > 0) {
-        this.sessionsGateway.emitParticipantJoined(session.id, 'TUTOR');
-      }
     } else {
-      const updated = await this.prisma.session.updateMany({
+      await this.prisma.session.updateMany({
         where: { id: session.id, learnerJoinedAt: null },
         data: { learnerJoinedAt: now },
       });
-      if (updated.count > 0) {
-        this.sessionsGateway.emitParticipantJoined(session.id, 'LEARNER');
-      }
     }
   }
 

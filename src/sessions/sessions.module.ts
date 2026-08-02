@@ -7,7 +7,6 @@ import { AnnouncementsController } from './controllers/announcements.controller'
 import { AssignmentsController } from './controllers/assignments.controller';
 import { DailyWebhookController } from './controllers/daily-webhook.controller';
 import { SessionsController } from './controllers/sessions.controller';
-import { SessionsGateway } from './gateways/sessions.gateway';
 import { AnnouncementsService } from './services/announcements.service';
 import { AssignmentsService } from './services/assignments.service';
 import { SessionsService } from './services/sessions.service';
@@ -17,7 +16,6 @@ import { SessionReviewAutoResolveCron } from './services/session-review-auto-res
   imports: [AuthModule, DailyModule, PaymentsModule],
   providers: [
     SessionsService,
-    SessionsGateway,
     AnnouncementsService,
     AssignmentsService,
     SessionReviewAutoResolveCron,

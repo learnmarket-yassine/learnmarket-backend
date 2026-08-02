@@ -4,7 +4,6 @@ import { HoldsService } from '../holds/services/holds.service';
 import { SessionsService } from '../sessions/services/sessions.service';
 import { DailyService, DailyRoom } from '../sessions/services/daily.service';
 import { PayoutsService } from '../payments/services/payouts.service';
-import { SessionsGateway } from '../sessions/gateways/sessions.gateway';
 import { UploadService } from '../storage/upload.service';
 import { BookingsService } from './services/bookings.service';
 
@@ -41,10 +40,6 @@ describe('BookingsService (integration, real DB)', () => {
           },
         },
         { provide: UploadService, useValue: {} },
-        {
-          provide: SessionsGateway,
-          useValue: { emitParticipantJoined: jest.fn() },
-        },
         { provide: PayoutsService, useValue: {} },
       ],
     }).compile();

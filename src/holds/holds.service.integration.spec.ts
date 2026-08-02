@@ -4,7 +4,6 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SessionsService } from '../sessions/services/sessions.service';
 import { DailyService, DailyRoom } from '../sessions/services/daily.service';
 import { PayoutsService } from '../payments/services/payouts.service';
-import { SessionsGateway } from '../sessions/gateways/sessions.gateway';
 import { UploadService } from '../storage/upload.service';
 import { HoldsService } from './services/holds.service';
 
@@ -41,10 +40,6 @@ describe('HoldsService (integration, real DB)', () => {
           },
         },
         { provide: UploadService, useValue: {} },
-        {
-          provide: SessionsGateway,
-          useValue: { emitParticipantJoined: jest.fn() },
-        },
         { provide: PayoutsService, useValue: {} },
       ],
     }).compile();

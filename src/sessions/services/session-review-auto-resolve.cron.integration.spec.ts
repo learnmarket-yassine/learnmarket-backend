@@ -2,7 +2,6 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DailyService } from './daily.service';
 import { PayoutsService } from '../../payments/services/payouts.service';
-import { SessionsGateway } from '../gateways/sessions.gateway';
 import { UploadService } from '../../storage/upload.service';
 import { SessionsService } from './sessions.service';
 import { SessionReviewAutoResolveCron } from './session-review-auto-resolve.cron';
@@ -26,7 +25,6 @@ describe('SessionReviewAutoResolveCron (integration, real DB)', () => {
         SessionsService,
         { provide: DailyService, useValue: {} },
         { provide: UploadService, useValue: {} },
-        { provide: SessionsGateway, useValue: { emitParticipantJoined: jest.fn() } },
         {
           provide: PayoutsService,
           useValue: {
