@@ -2,10 +2,10 @@ import { ConflictException, ForbiddenException, NotFoundException } from '@nestj
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UploadService } from '../../storage/upload.service';
-import { SessionsGateway } from '../gateways/sessions.gateway';
 import { AssignmentsService } from './assignments.service';
 import { SessionsService } from './sessions.service';
-import { ZoomService } from './zoom.service';
+import { DailyService } from './daily.service';
+import { PayoutsService } from '../../payments/services/payouts.service';
 
 describe('AssignmentsService (integration, real DB)', () => {
   let moduleRef: TestingModule;
@@ -23,7 +23,7 @@ describe('AssignmentsService (integration, real DB)', () => {
         PrismaService,
         SessionsService,
         AssignmentsService,
-        { provide: ZoomService, useValue: {} },
+        { provide: DailyService, useValue: {} },
         {
           provide: UploadService,
           useValue: {
@@ -33,7 +33,7 @@ describe('AssignmentsService (integration, real DB)', () => {
             getSignedDownloadUrl: jest.fn(),
           },
         },
-        { provide: SessionsGateway, useValue: { emitParticipantJoined: jest.fn() } },
+        { provide: PayoutsService, useValue: {} },
       ],
     }).compile();
 

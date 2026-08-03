@@ -7,6 +7,7 @@ import {
 import { PaymentStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StripeService } from './stripe.service';
+import { DailyService } from '../../sessions/services/daily.service';
 import { PaymentsService } from './payments.service';
 
 describe('PaymentsService.createPaymentIntentForProposal', () => {
@@ -32,6 +33,7 @@ describe('PaymentsService.createPaymentIntentForProposal', () => {
         PaymentsService,
         { provide: PrismaService, useValue: prisma },
         { provide: StripeService, useValue: stripe },
+        { provide: DailyService, useValue: { deleteRoom: jest.fn() } },
       ],
     }).compile();
 

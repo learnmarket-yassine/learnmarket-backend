@@ -2,8 +2,8 @@ import { ConflictException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../prisma/prisma.service';
 import { SessionsService } from '../sessions/services/sessions.service';
-import { ZoomService, ZoomMeeting } from '../sessions/services/zoom.service';
-import { SessionsGateway } from '../sessions/gateways/sessions.gateway';
+import { DailyService, DailyRoom } from '../sessions/services/daily.service';
+import { PayoutsService } from '../payments/services/payouts.service';
 import { UploadService } from '../storage/upload.service';
 import { HoldsService } from './services/holds.service';
 
@@ -11,7 +11,7 @@ describe('HoldsService (integration, real DB)', () => {
   let moduleRef: TestingModule;
   let prisma: PrismaService;
   let holds: HoldsService;
-  let createMeetingMock: jest.Mock;
+  let createRoomMock: jest.Mock;
 
   let tutorId: string;
   let learnerId: string;
@@ -19,27 +19,28 @@ describe('HoldsService (integration, real DB)', () => {
   let sessionBId: string;
   let proposalId: string;
 
-  const testMeeting: ZoomMeeting = {
-    id: 84912052310,
-    join_url: 'https://zoom.us/j/testmeeting',
-    start_url: 'https://zoom.us/s/testmeeting?zak=host-token',
-    password: 'pw123',
+  const testRoom: DailyRoom = {
+    name: 'test-room',
+    url: 'https://learnmarket.daily.co/test-room',
   };
 
   beforeAll(async () => {
-    createMeetingMock = jest.fn().mockResolvedValue(testMeeting);
+    createRoomMock = jest.fn().mockResolvedValue(testRoom);
 
     moduleRef = await Test.createTestingModule({
       providers: [
         PrismaService,
         HoldsService,
         SessionsService,
-        { provide: ZoomService, useValue: { createMeeting: createMeetingMock } },
-        { provide: UploadService, useValue: {} },
         {
-          provide: SessionsGateway,
-          useValue: { emitParticipantJoined: jest.fn() },
+          provide: DailyService,
+          useValue: {
+            createRoom: createRoomMock,
+            updateRoomExpiry: jest.fn().mockResolvedValue(undefined),
+          },
         },
+        { provide: UploadService, useValue: {} },
+        { provide: PayoutsService, useValue: {} },
       ],
     }).compile();
 
@@ -53,8 +54,8 @@ describe('HoldsService (integration, real DB)', () => {
   });
 
   beforeEach(async () => {
-    createMeetingMock.mockClear();
-    createMeetingMock.mockResolvedValue(testMeeting);
+    createRoomMock.mockClear();
+    createRoomMock.mockResolvedValue(testRoom);
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
     const [tutor, learner] = await Promise.all([
@@ -299,7 +300,7 @@ describe('HoldsService (integration, real DB)', () => {
     expect(session.status).toBe('BOOKED');
   });
 
-  it('provisions a Zoom meeting on the session once a hold is confirmed', async () => {
+  it('provisions a Daily room on the session once a hold is confirmed', async () => {
     const hold = await holds.createSlotHold(
       tutorId,
       learnerId,
@@ -310,17 +311,16 @@ describe('HoldsService (integration, real DB)', () => {
 
     await holds.confirmSlotHold(hold.id);
 
-    expect(createMeetingMock).toHaveBeenCalledTimes(1);
+    expect(createRoomMock).toHaveBeenCalledTimes(1);
     const session = await prisma.session.findUniqueOrThrow({
       where: { id: sessionAId },
     });
-    expect(session.zoomMeetingId).toBe(String(testMeeting.id));
-    expect(session.zoomJoinUrl).toBe(testMeeting.join_url);
-    expect(session.zoomStartUrl).toBe(testMeeting.start_url);
+    expect(session.dailyRoomName).toBe(testRoom.name);
+    expect(session.dailyRoomUrl).toBe(testRoom.url);
   });
 
-  it('still confirms the booking when the Zoom API fails during provisioning', async () => {
-    createMeetingMock.mockRejectedValue(new Error('Zoom API unavailable'));
+  it('still confirms the booking when the Daily API fails during provisioning', async () => {
+    createRoomMock.mockRejectedValue(new Error('Daily API unavailable'));
 
     const hold = await holds.createSlotHold(
       tutorId,
@@ -330,7 +330,7 @@ describe('HoldsService (integration, real DB)', () => {
       new Date('2027-01-01T11:00:00.000Z'),
     );
 
-    // Must resolve, not throw -- a Zoom outage can never block a booking
+    // Must resolve, not throw -- a Daily outage can never block a booking
     // that has already been confirmed in the database.
     const booking = await holds.confirmSlotHold(hold.id);
     expect(booking?.status).toBe('CONFIRMED');
@@ -339,8 +339,8 @@ describe('HoldsService (integration, real DB)', () => {
       where: { id: sessionAId },
     });
     expect(session.status).toBe('BOOKED');
-    expect(session.zoomJoinUrl).toBeNull();
-    expect(session.zoomStartUrl).toBeNull();
+    expect(session.dailyRoomUrl).toBeNull();
+    expect(session.dailyRoomName).toBeNull();
   });
 
   it('createSlotHold resets a *different* stale-held session back to PENDING_SCHEDULE when cleaning up', async () => {

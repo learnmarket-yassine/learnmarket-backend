@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { ProposalsModule } from '../proposals/proposals.module';
 import { SparksModule } from '../sparks/sparks.module';
+import { DailyModule } from '../sessions/daily.module';
 import { StripeModule } from './stripe.module';
 import { PaymentsService } from './services/payments.service';
 import { PayoutsService } from './services/payouts.service';
@@ -16,7 +17,13 @@ import { AdminPaymentDisputesController } from './controllers/admin-payment-disp
 import { AdminTransactionsController } from './controllers/admin-transactions.controller';
 
 @Module({
-  imports: [ProposalsModule, AuthModule, StripeModule, SparksModule],
+  imports: [
+    ProposalsModule,
+    AuthModule,
+    StripeModule,
+    SparksModule,
+    DailyModule,
+  ],
   providers: [
     PaymentsService,
     PayoutsService,

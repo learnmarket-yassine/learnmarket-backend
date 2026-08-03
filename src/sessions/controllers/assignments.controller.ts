@@ -60,6 +60,16 @@ export class AssignmentsController {
     return this.assignments.getAttachmentUrl(userId, id, attachmentId);
   }
 
+  @Delete('assignments/:id/attachments/:attachmentId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  removeAttachment(
+    @CurrentUser('id') userId: string,
+    @Param('id') id: string,
+    @Param('attachmentId') attachmentId: string,
+  ) {
+    return this.assignments.removeAttachment(userId, id, attachmentId);
+  }
+
   @Get('assignments/:id/submission/attachments/:attachmentId/url')
   getSubmissionAttachmentUrl(
     @CurrentUser('id') userId: string,

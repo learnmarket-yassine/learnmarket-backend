@@ -1,8 +1,14 @@
 import { Type } from 'class-transformer';
-import { IsDate, IsOptional, IsString, MaxLength } from 'class-validator';
+import {
+  IsArray,
+  IsDate,
+  IsOptional,
+  IsString,
+  MaxLength,
+  ValidateNested,
+} from 'class-validator';
+import { AttachFileDto } from '../../storage/dto/attach-file.dto';
 
-// Attachments are intentionally not editable here -- reference materials are
-// only set at creation time; re-uploading/removing them is out of scope.
 export class UpdateAssignmentDto {
   @IsOptional()
   @IsString()
@@ -17,4 +23,11 @@ export class UpdateAssignmentDto {
   @Type(() => Date)
   @IsDate()
   dueAt?: Date;
+
+  // New reference materials to append; existing attachments are untouched.
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => AttachFileDto)
+  attachments?: AttachFileDto[];
 }

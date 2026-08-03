@@ -1,16 +1,21 @@
 import {
   ConflictException,
-  forwardRef,
-  Inject,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import {
+  LearnRequestType,
+  PaymentStatus,
+  Prisma,
+  SessionStatus,
+} from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { ZoomService } from './zoom.service';
-import { SessionsGateway } from '../gateways/sessions.gateway';
-
-const MEETING_TOPIC = 'Yora Tutoring Session';
+import { DailyService } from './daily.service';
+import {
+  PayoutsService,
+  PayoutTrigger,
+} from '../../payments/services/payouts.service';
 
 const JOIN_WINDOW_BEFORE_MS = 15 * 60_000;
 const JOIN_GRACE_AFTER_MS = 30 * 60_000;
@@ -35,9 +40,8 @@ export class SessionsService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly zoomService: ZoomService,
-    @Inject(forwardRef(() => SessionsGateway))
-    private readonly sessionsGateway: SessionsGateway,
+    private readonly dailyService: DailyService,
+    private readonly payoutsService: PayoutsService,
   ) {}
 
   async assertParticipant(userId: string, sessionId: string) {
@@ -73,6 +77,11 @@ export class SessionsService {
       },
       tutorJoinedAt: session.tutorJoinedAt,
       learnerJoinedAt: session.learnerJoinedAt,
+      summary: session.summary,
+      summarySubmittedAt: session.summarySubmittedAt,
+      learnerConfirmedAt: session.learnerConfirmedAt,
+      disputeReason: session.disputeReason,
+      disputedAt: session.disputedAt,
       booking: session.booking
         ? {
             id: session.booking.id,
@@ -89,30 +98,22 @@ export class SessionsService {
       where: { id: sessionId },
       include: { booking: true },
     });
-    if (!session || session.zoomJoinUrl || !session.booking) return;
+    if (!session || session.dailyRoomUrl || !session.booking) return;
 
     try {
-      const durationMinutes = Math.round(
-        (session.booking.endTime.getTime() -
-          session.booking.startTime.getTime()) /
-          60_000,
-      );
-      const meeting = await this.zoomService.createMeeting(
-        MEETING_TOPIC,
-        session.booking.startTime,
-        durationMinutes,
+      const room = await this.dailyService.createRoom(
+        session.id,
+        new Date(session.booking.endTime.getTime() + JOIN_GRACE_AFTER_MS),
       );
       await this.prisma.session.update({
         where: { id: sessionId },
         data: {
-          zoomMeetingId: String(meeting.id),
-          zoomJoinUrl: meeting.join_url,
-          zoomStartUrl: meeting.start_url,
-          zoomPassword: meeting.password,
+          dailyRoomName: room.name,
+          dailyRoomUrl: room.url,
         },
       });
     } catch (err) {
-      this.logger.error('Zoom meeting provisioning failed', err);
+      this.logger.error('Daily meeting provisioning failed', err);
     }
   }
 
@@ -121,21 +122,15 @@ export class SessionsService {
       where: { id: sessionId },
       include: { booking: true },
     });
-    if (!session?.zoomMeetingId || !session.booking) return;
+    if (!session?.dailyRoomName || !session.booking) return;
 
     try {
-      const durationMinutes = Math.round(
-        (session.booking.endTime.getTime() -
-          session.booking.startTime.getTime()) /
-          60_000,
-      );
-      await this.zoomService.updateMeetingTime(
-        session.zoomMeetingId,
-        session.booking.startTime,
-        durationMinutes,
+      await this.dailyService.updateRoomExpiry(
+        session.dailyRoomName,
+        new Date(session.booking.endTime.getTime() + JOIN_GRACE_AFTER_MS),
       );
     } catch (err) {
-      this.logger.error('Zoom meeting time update failed', err);
+      this.logger.error('Daily meeting time update failed', err);
     }
   }
 
@@ -144,7 +139,7 @@ export class SessionsService {
     if (!this.isTutor(session, userId)) {
       throw new NotFoundException('Session not found');
     }
-    if (session.zoomJoinUrl) {
+    if (session.dailyRoomUrl) {
       throw new ConflictException(
         'A meeting has already been provisioned for this session',
       );
@@ -155,27 +150,36 @@ export class SessionsService {
 
   async getMeetingDetails(userId: string, sessionId: string) {
     const session = await this.assertParticipant(userId, sessionId);
-    const isTutor = this.isTutor(session, userId);
 
-    if (!session.zoomJoinUrl) {
+    if (!session.dailyRoomUrl || !session.dailyRoomName) {
       return { status: 'not_provisioned' as const, canJoinYet: false };
     }
 
-    const canJoinYet = this.computeCanJoinYet(session.booking);
-
-    if (isTutor) {
-      return {
-        status: 'provisioned' as const,
-        canJoinYet,
-        joinUrl: session.zoomStartUrl,
-        password: session.zoomPassword,
-      };
+    if (session.booking && this.hasSessionEnded(session.booking)) {
+      return { status: 'not_provisioned' as const, canJoinYet: false };
     }
+
+    const isTutor = this.isTutor(session, userId);
+    const canJoinYet = this.computeCanJoinYet(session.booking);
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { firstname: true, lastname: true },
+    });
+
+    const token = await this.dailyService.createMeetingToken({
+      roomName: session.dailyRoomName,
+      userId,
+      userName: `${user.firstname} ${user.lastname}`,
+      isOwner: isTutor,
+      expiresAt: session.booking
+        ? new Date(session.booking.endTime.getTime() + JOIN_GRACE_AFTER_MS)
+        : new Date(Date.now() + JOIN_GRACE_AFTER_MS),
+    });
+
     return {
       status: 'provisioned' as const,
       canJoinYet,
-      joinUrl: session.zoomJoinUrl,
-      password: session.zoomPassword,
+      joinUrl: `${session.dailyRoomUrl}?t=${token}`,
     };
   }
 
@@ -189,23 +193,171 @@ export class SessionsService {
       now <= booking.endTime.getTime() + JOIN_GRACE_AFTER_MS
     );
   }
-  async join(userId: string, sessionId: string): Promise<{ joined: true }> {
-    const session = await this.assertParticipant(userId, sessionId);
-    const now = new Date();
 
-    if (this.isTutor(session, userId)) {
+  private hasSessionEnded(booking: { endTime: Date }): boolean {
+    return Date.now() > booking.endTime.getTime() + JOIN_GRACE_AFTER_MS;
+  }
+
+  async recordVerifiedJoin(
+    dailyRoomName: string,
+    dailyUserId: string,
+  ): Promise<void> {
+    const session = await this.prisma.session.findUnique({
+      where: { dailyRoomName },
+      include: SESSION_WITH_PARTICIPANTS,
+    });
+    if (!session) return;
+
+    const isTutor = session.proposal.tutorId === dailyUserId;
+    const isLearner = session.proposal.learnRequest.learnerId === dailyUserId;
+    if (!isTutor && !isLearner) return;
+
+    const now = new Date();
+    if (isTutor) {
       await this.prisma.session.updateMany({
-        where: { id: sessionId, tutorJoinedAt: null },
+        where: { id: session.id, tutorJoinedAt: null },
         data: { tutorJoinedAt: now },
       });
-      this.sessionsGateway.emitParticipantJoined(sessionId, 'TUTOR');
     } else {
       await this.prisma.session.updateMany({
-        where: { id: sessionId, learnerJoinedAt: null },
+        where: { id: session.id, learnerJoinedAt: null },
         data: { learnerJoinedAt: now },
       });
-      this.sessionsGateway.emitParticipantJoined(sessionId, 'LEARNER');
     }
-    return { joined: true };
+  }
+
+  async submitSessionSummary(
+    userId: string,
+    sessionId: string,
+    summary: string,
+  ) {
+    const session = await this.assertParticipant(userId, sessionId);
+    if (!this.isTutor(session, userId)) {
+      throw new NotFoundException('Session not found');
+    }
+    if (session.status !== SessionStatus.PENDING_REVIEW) {
+      throw new ConflictException('This session is not awaiting review');
+    }
+    if (session.summarySubmittedAt) {
+      throw new ConflictException(
+        'A summary has already been submitted for this session',
+      );
+    }
+
+    const updated = await this.prisma.session.update({
+      where: { id: sessionId },
+      data: { summary, summarySubmittedAt: new Date() },
+    });
+    await this.tryCompleteIfBothBranchesReady(sessionId);
+    return updated;
+  }
+
+  async confirmSession(userId: string, sessionId: string) {
+    const session = await this.assertParticipant(userId, sessionId);
+    if (this.isTutor(session, userId)) {
+      throw new NotFoundException('Session not found');
+    }
+    if (session.status !== SessionStatus.PENDING_REVIEW) {
+      throw new ConflictException('This session is not awaiting review');
+    }
+    if (session.learnerConfirmedAt || session.disputedAt) {
+      throw new ConflictException(
+        'You have already responded for this session',
+      );
+    }
+
+    const updated = await this.prisma.session.update({
+      where: { id: sessionId },
+      data: { learnerConfirmedAt: new Date() },
+    });
+    await this.tryCompleteIfBothBranchesReady(sessionId);
+    return updated;
+  }
+
+  async disputeSession(userId: string, sessionId: string, reason: string) {
+    const session = await this.assertParticipant(userId, sessionId);
+    if (this.isTutor(session, userId)) {
+      throw new NotFoundException('Session not found');
+    }
+    if (session.status !== SessionStatus.PENDING_REVIEW) {
+      throw new ConflictException('This session is not awaiting review');
+    }
+    if (session.learnerConfirmedAt || session.disputedAt) {
+      throw new ConflictException(
+        'You have already responded for this session',
+      );
+    }
+
+    // Deliberately does NOT call tryCompleteIfBothBranchesReady -- a dispute
+    // halts the gate permanently, regardless of the tutor branch's state.
+    return this.prisma.session.update({
+      where: { id: sessionId },
+      data: { disputeReason: reason, disputedAt: new Date() },
+    });
+  }
+
+  async tryCompleteIfBothBranchesReady(sessionId: string): Promise<void> {
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+    });
+    if (!session || session.status !== SessionStatus.PENDING_REVIEW) return;
+    if (session.disputedAt) return; // permanently halted, regardless of the other branch
+    if (!session.summarySubmittedAt || !session.learnerConfirmedAt) return; // still waiting on one branch
+
+    const trigger = await this.prisma.$transaction((tx) =>
+      this.completeSessionCascade(tx, sessionId),
+    );
+    if (trigger?.shouldRelease) {
+      await this.payoutsService.releasePayout(trigger.payoutId);
+    }
+  }
+
+  async completeSessionCascade(
+    tx: Prisma.TransactionClient,
+    sessionId: string,
+  ): Promise<PayoutTrigger | null> {
+    const claimed = await tx.session.updateMany({
+      where: { id: sessionId, status: { not: SessionStatus.COMPLETED } },
+      data: { status: SessionStatus.COMPLETED },
+    });
+    if (claimed.count === 0) return null;
+
+    const completedSession = await tx.session.findUniqueOrThrow({
+      where: { id: sessionId },
+      include: { proposal: { include: { learnRequest: true, payment: true } } },
+    });
+    const { proposal } = completedSession;
+
+    const nextSession = await tx.session.findFirst({
+      where: {
+        proposalId: proposal.id,
+        sessionNumber: { gt: completedSession.sessionNumber },
+      },
+      orderBy: { sessionNumber: 'asc' },
+    });
+
+    if (!nextSession) {
+      await tx.learnRequest.update({
+        where: { id: proposal.learnRequest.id },
+        data: { status: 'COMPLETED', completedAt: new Date() },
+      });
+    } else if (
+      proposal.learnRequest.type === LearnRequestType.COURSE &&
+      nextSession.status === SessionStatus.LOCKED
+    ) {
+      await tx.session.update({
+        where: { id: nextSession.id },
+        data: { status: SessionStatus.PENDING_SCHEDULE },
+      });
+    }
+
+    if (proposal.payment?.status !== PaymentStatus.SUCCEEDED) return null;
+
+    return this.payoutsService.recordPayoutForCompletedSession(
+      tx,
+      completedSession,
+      proposal,
+      proposal.payment,
+    );
   }
 }

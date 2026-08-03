@@ -167,15 +167,69 @@ export class AssignmentsService {
       );
     }
 
+    const attachments: {
+      key: string;
+      fileName: string;
+      mimeType: string | null;
+      fileSize: number | null;
+    }[] = [];
+    for (const item of dto.attachments ?? []) {
+      const head = await this.uploadService.finalize(
+        tutorId,
+        UploadPurpose.ASSIGNMENT_ATTACHMENT,
+        item.key,
+      );
+      attachments.push({
+        key: item.key,
+        fileName: item.fileName ?? item.key.split('/').pop() ?? 'file',
+        mimeType: item.mimeType ?? head.contentType ?? null,
+        fileSize: head.contentLength ?? null,
+      });
+    }
+
     return this.prisma.assignment.update({
       where: { sessionId },
       data: {
         title: dto.title,
         instructions: dto.instructions,
         dueAt: dto.dueAt,
+        attachments: { create: attachments },
       },
       include: ASSIGNMENT_INCLUDE,
     });
+  }
+
+  async removeAttachment(
+    tutorId: string,
+    assignmentId: string,
+    attachmentId: string,
+  ) {
+    const { assignment, session } = await this.assertAssignmentParticipant(
+      tutorId,
+      assignmentId,
+    );
+    if (!this.sessions.isTutor(session, tutorId)) {
+      throw new ForbiddenException(
+        'Only the tutor can remove reference materials',
+      );
+    }
+    if (assignment.submission?.status !== SubmissionStatus.ASSIGNED) {
+      throw new ConflictException(
+        'Reference materials can no longer be removed',
+      );
+    }
+
+    const attachment = await this.prisma.assignmentAttachment.findUnique({
+      where: { id: attachmentId },
+    });
+    if (!attachment || attachment.assignmentId !== assignmentId) {
+      throw new NotFoundException('Attachment not found');
+    }
+
+    await this.prisma.assignmentAttachment.delete({
+      where: { id: attachmentId },
+    });
+    await this.uploadService.deleteIfPresent(attachment.key);
   }
 
   async remove(tutorId: string, sessionId: string) {

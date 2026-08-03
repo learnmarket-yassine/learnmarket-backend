@@ -2,6 +2,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import {
@@ -14,6 +15,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StripeService } from './stripe.service';
+import { DailyService } from '../../sessions/services/daily.service';
 import { toCents } from '../utils/money.util';
 import { amountThroughSession } from '../utils/payout-math.util';
 import { GetMyPaymentsQueryDto } from '../dto/get-my-payments-query.dto';
@@ -30,9 +32,12 @@ export interface CheckoutIntent {
 
 @Injectable()
 export class PaymentsService {
+  private readonly logger = new Logger(PaymentsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly stripe: StripeService,
+    private readonly dailyService: DailyService,
   ) {}
 
   /**
@@ -148,6 +153,18 @@ export class PaymentsService {
       );
     }
 
+    // Read before the transaction flips these sessions to CANCELLED --
+    // dailyRoomName isn't touched by that update either way, but the rooms
+    // still need cleaning up afterward, outside the DB transaction.
+    const sessionsToCleanup = await this.prisma.session.findMany({
+      where: {
+        proposalId,
+        status: { notIn: [SessionStatus.COMPLETED, SessionStatus.CANCELLED] },
+        dailyRoomName: { not: null },
+      },
+      select: { dailyRoomName: true },
+    });
+
     await this.prisma.$transaction(async (tx) => {
       await tx.learnRequest.update({
         where: { id: proposal.learnRequestId },
@@ -167,6 +184,17 @@ export class PaymentsService {
     });
 
     await this.cancelAndRefund(proposalId, reason);
+
+    // Daily room cleanup happens outside the transaction and must never
+    // block a cancellation/refund that already committed -- matches
+    // confirmSlotHold's decoupled try/catch pattern around Daily calls.
+    for (const session of sessionsToCleanup) {
+      try {
+        await this.dailyService.deleteRoom(session.dailyRoomName!);
+      } catch (err) {
+        this.logger.error('Daily room deletion failed', err);
+      }
+    }
   }
 
   /**

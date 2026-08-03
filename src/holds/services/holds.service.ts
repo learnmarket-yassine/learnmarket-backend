@@ -203,21 +203,21 @@ export class HoldsService {
       this.handleOverlapError(error, 'no_overlapping_confirmed_bookings');
     }
 
-    // Zoom provisioning/update happens outside the transaction and must
-    // never block a booking that has already been confirmed -- a Zoom
+    // Daily.co provisioning/update happens outside the transaction and must
+    // never block a booking that has already been confirmed -- a Daily.co
     // outage degrades to "session shows not_provisioned, tutor can retry",
     // not a failed booking. Both calls already swallow their own errors;
     // this try/catch is defense-in-depth around the DB update they perform.
     try {
       if (isReschedule) {
-        // Same Zoom meeting, new time -- provisionMeeting would no-op here
-        // since zoomJoinUrl is already set.
+        // Same Daily room, new time -- provisionMeeting would no-op here
+        // since dailyRoomUrl is already set.
         await this.sessionsService.updateMeetingTime(booking.sessionId!);
       } else {
         await this.sessionsService.provisionMeeting(booking.sessionId!);
       }
     } catch (err) {
-      this.logger.error('Zoom meeting provisioning failed', err);
+      this.logger.error('Daily meeting provisioning failed', err);
     }
 
     return booking;

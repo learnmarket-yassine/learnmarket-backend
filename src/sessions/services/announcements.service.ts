@@ -90,9 +90,30 @@ export class AnnouncementsService {
     dto: UpdateAnnouncementDto,
   ) {
     await this.findOwnedByAuthor(userId, announcementId);
+
+    const attachments: {
+      key: string;
+      fileName: string;
+      mimeType: string | null;
+      fileSize: number | null;
+    }[] = [];
+    for (const item of dto.attachments ?? []) {
+      const head = await this.uploadService.finalize(
+        userId,
+        UploadPurpose.ANNOUNCEMENT_ATTACHMENT,
+        item.key,
+      );
+      attachments.push({
+        key: item.key,
+        fileName: item.fileName ?? item.key.split('/').pop() ?? 'file',
+        mimeType: item.mimeType ?? head.contentType ?? null,
+        fileSize: head.contentLength ?? null,
+      });
+    }
+
     return this.prisma.announcement.update({
       where: { id: announcementId },
-      data: { content: dto.content },
+      data: { content: dto.content, attachments: { create: attachments } },
       include: {
         author: { select: AUTHOR_SELECT },
         attachments: true,
@@ -102,6 +123,26 @@ export class AnnouncementsService {
         },
       },
     });
+  }
+
+  async removeAttachment(
+    userId: string,
+    announcementId: string,
+    attachmentId: string,
+  ) {
+    const announcement = await this.findOwnedByAuthor(userId, announcementId);
+
+    const attachment = announcement.attachments.find(
+      (item) => item.id === attachmentId,
+    );
+    if (!attachment) {
+      throw new NotFoundException('Attachment not found');
+    }
+
+    await this.prisma.announcementAttachment.delete({
+      where: { id: attachmentId },
+    });
+    await this.uploadService.deleteIfPresent(attachment.key);
   }
 
   async remove(userId: string, announcementId: string) {
