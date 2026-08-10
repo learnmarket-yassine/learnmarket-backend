@@ -8,21 +8,21 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
 import { randomUUID } from 'crypto';
-import { Prisma, User, UserRole } from '@prisma/client';
+import { User, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
-import { addDays, generateSecureToken, hashToken } from './utils/token.util';
 import { StringValue } from 'ms';
 import { SignupDto } from './dto/signup.dto';
 import * as crypto from 'crypto';
 import { EmailService } from '../email/email.service';
 import { RedisService } from '../redis/redis.service';
+import { RefreshTokenService } from './refresh-token.service';
 import type { AuthUser } from '../common/decorators/current-user.decorator';
 
 export interface TokenPair {
   accessToken: string;
   refreshToken: string;
-  deviceId: string;
+  familyId: string;
 }
 interface ResetTokenPayload {
   sub: string;
@@ -52,6 +52,7 @@ export class AuthService {
     private readonly config: ConfigService,
     private readonly email: EmailService,
     private readonly redis: RedisService,
+    private readonly refreshTokens: RefreshTokenService,
   ) {}
 
   async signup(
@@ -90,16 +91,12 @@ export class AuthService {
     deviceName?: string,
   ): Promise<TokenPair> {
     const user = await this.getUserAndCheckPassword(password, email);
-    // Generate a device id if the client didn't supply one.
-    const resolvedDeviceId = deviceId ?? randomUUID();
+    // Generate a family id if the client didn't supply one. Reusing the
+    // same id on a later login overwrites the family's Redis entry, which
+    // implicitly invalidates whatever refresh token that device held.
+    const resolvedFamilyId = deviceId ?? randomUUID();
 
-    // One active session per device: revoke any existing live session for
-    await this.prisma.refreshToken.updateMany({
-      where: { userId: user.id, deviceId: resolvedDeviceId, revoked: false },
-      data: { revoked: true },
-    });
-
-    return this.issueTokens(user, resolvedDeviceId, deviceName);
+    return this.issueTokens(user, resolvedFamilyId, deviceName);
   }
 
   verifyAccessToken(token: string): AuthUser {
@@ -110,56 +107,24 @@ export class AuthService {
   }
 
   // ---------------------------------------------------------------------------
-  // Refresh — per-device rotation with reuse detection (simple strategy)
+  // Refresh — Redis-backed family rotation with reuse detection
   // ---------------------------------------------------------------------------
 
   async refresh(rawToken: string): Promise<TokenPair> {
-    const hash = hashToken(rawToken);
+    // Rotation, family lookup, and reuse detection are all handled
+    // atomically inside RefreshTokenService — a mismatched/replayed token
+    // throws 401 there (and revokes the family on genuine reuse).
+    const rotated = await this.refreshTokens.rotate(rawToken);
 
-    const stored = await this.prisma.refreshToken.findUnique({
-      where: { tokenHash: hash },
-      include: { user: true },
-    });
-
-    if (!stored || stored.revoked || stored.expiresAt < new Date()) {
+    const user = await this.users.findById(rotated.userId);
+    if (!user) {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
-    // Normal path.issue the next token atomically. The guarded
-    const newRawToken = generateSecureToken();
-    const refreshTokenExpiresDays = this.config.get<number>(
-      'REFRESH_TOKEN_EXPIRES_DAYS',
-      7,
-    );
-    const expiresAt = addDays(new Date(), refreshTokenExpiresDays);
-
-    await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      const rotated = await tx.refreshToken.updateMany({
-        where: { id: stored.id, revoked: false },
-        data: { revoked: true, revokedAt: new Date() },
-      });
-
-      if (rotated.count === 0) {
-        throw new UnauthorizedException('Invalid refresh token');
-      }
-
-      await tx.refreshToken.create({
-        data: {
-          tokenHash: hashToken(newRawToken),
-          userId: stored.userId,
-          deviceId: stored.deviceId,
-          deviceName: stored.deviceName,
-          expiresAt,
-        },
-      });
-    });
-
-    const accessToken = this.signAccessToken(stored.user);
-
     return {
-      accessToken,
-      refreshToken: newRawToken,
-      deviceId: stored.deviceId,
+      accessToken: this.signAccessToken(user),
+      refreshToken: rotated.refreshToken,
+      familyId: rotated.familyId,
     };
   }
 
@@ -168,21 +133,19 @@ export class AuthService {
   // ---------------------------------------------------------------------------
 
   // Revoke a single device session by its raw token (the current device).
+  // Best-effort: an already-invalid/expired token is treated as "already
+  // logged out" rather than an error.
   async logout(rawToken: string): Promise<{ message: string }> {
-    const hash = hashToken(rawToken);
-    await this.prisma.refreshToken.updateMany({
-      where: { tokenHash: hash, revoked: false },
-      data: { revoked: true, revokedAt: new Date() },
-    });
+    const identity = this.refreshTokens.identify(rawToken);
+    if (identity) {
+      await this.refreshTokens.revokeFamily(identity.userId, identity.familyId);
+    }
     return { message: 'Logged out' };
   }
 
   //Revoke every active session for the user.
   async logoutAll(userId: string): Promise<{ message: string }> {
-    await this.prisma.refreshToken.updateMany({
-      where: { userId, revoked: false },
-      data: { revoked: true, revokedAt: new Date() },
-    });
+    await this.refreshTokens.revokeAllFamilies(userId);
     return { message: 'Logged out from all devices' };
   }
 
@@ -190,33 +153,28 @@ export class AuthService {
   // Session management
   // ---------------------------------------------------------------------------
 
-  // List active (non-revoked, unexpired) sessions for the sessions screen.
+  // List active (unexpired) sessions for the sessions screen.
   async listSessions(userId: string) {
-    const sessions = await this.prisma.refreshToken.findMany({
-      where: { userId, revoked: false, expiresAt: { gt: new Date() } },
-      select: {
-        id: true,
-        deviceId: true,
-        deviceName: true,
-        createdAt: true,
-        expiresAt: true,
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-    return sessions;
+    const sessions = await this.refreshTokens.listFamilies(userId);
+    return sessions.map((session) => ({
+      id: session.familyId,
+      deviceId: session.familyId,
+      deviceName: session.deviceName ?? null,
+      createdAt: session.createdAt,
+      expiresAt: new Date(
+        Date.now() + session.expiresInSeconds * 1000,
+      ).toISOString(),
+    }));
   }
 
-  // Revoke one session by row id, if it belongs to the user.
+  // Revoke one session by family id, if it belongs to the user.
   async revokeSession(
     userId: string,
     sessionId: string,
   ): Promise<{ message: string }> {
-    const result = await this.prisma.refreshToken.updateMany({
-      where: { id: sessionId, userId, revoked: false },
-      data: { revoked: true, revokedAt: new Date() },
-    });
+    const revoked = await this.refreshTokens.revokeFamily(userId, sessionId);
 
-    if (result.count === 0) {
+    if (!revoked) {
       throw new UnauthorizedException('Session not found');
     }
     return { message: 'Session revoked' };
@@ -295,19 +253,14 @@ export class AuthService {
     }
     //Consume token immediately (single-use)
     await this.redis.delete(resetTokenKey(payload.sub));
-    //Update password and revoke all sessions in one transaction
+    //Update password, then revoke every refresh-token family for the user
     const passwordHash = await argon2.hash(newPassword);
 
-    await this.prisma.$transaction([
-      this.prisma.user.update({
-        where: { id: payload.sub },
-        data: { password: passwordHash },
-      }),
-      this.prisma.refreshToken.updateMany({
-        where: { userId: payload.sub, revoked: false },
-        data: { revoked: true, revokedAt: new Date() },
-      }),
-    ]);
+    await this.prisma.user.update({
+      where: { id: payload.sub },
+      data: { password: passwordHash },
+    });
+    await this.refreshTokens.revokeAllFamilies(payload.sub);
 
     return { message: 'Password reset successfully.' };
   }
@@ -342,30 +295,19 @@ export class AuthService {
 
   private async issueTokens(
     user: User,
-    deviceId: string,
+    familyId: string,
     deviceName?: string,
   ): Promise<TokenPair> {
-    const rawRefreshToken = generateSecureToken();
-    const refreshTokenExpiresDays = this.config.get<number>(
-      'REFRESH_TOKEN_EXPIRES_DAYS',
-      7,
+    const { refreshToken } = await this.refreshTokens.issue(
+      user.id,
+      familyId,
+      deviceName,
     );
-    const expiresAt = addDays(new Date(), refreshTokenExpiresDays);
-
-    await this.prisma.refreshToken.create({
-      data: {
-        tokenHash: hashToken(rawRefreshToken),
-        userId: user.id,
-        deviceId,
-        deviceName,
-        expiresAt,
-      },
-    });
 
     return {
       accessToken: this.signAccessToken(user),
-      refreshToken: rawRefreshToken,
-      deviceId,
+      refreshToken,
+      familyId,
     };
   }
 

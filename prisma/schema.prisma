@@ -63,7 +63,6 @@ model User {
   onboardingStep               Int                          @default(1) @map("onboarding_step")
   createdAt                    DateTime                     @default(now()) @map("created_at")
   updatedAt                    DateTime                     @updatedAt @map("updated_at")
-  refreshTokens                RefreshToken[]
   tutorProfile                 TutorProfile?                @relation("TutorProfileUser")
   reviewedTutorVerifications   TutorProfile[]               @relation("TutorVerificationReviewer")
   learnerProfile               LearnerProfile?
@@ -94,22 +93,6 @@ model User {
   @@index([email])
   @@index([role])
   @@map("users")
-}
-
-model RefreshToken {
-  id         String    @id @default(uuid())
-  tokenHash  String    @unique
-  userId     String
-  deviceId   String // identifies a device — one active session per device
-  deviceName String? // display label for the sessions list ("iPhone 14")
-  revoked    Boolean   @default(false)
-  revokedAt  DateTime?
-  expiresAt  DateTime
-  createdAt  DateTime  @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
 }
 
 model Category {
@@ -502,8 +485,6 @@ model LearnRequest {
   budgetMin          Decimal?           @map("budget_min") @db.Decimal(10, 2)
   budgetMax          Decimal?           @map("budget_max") @db.Decimal(10, 2)
   completedAt        DateTime?          @map("completed_at") // set when the
-  // last session completes and status transitions to COMPLETED -- drives
-  // the feedback double-blind reveal fallback deadline
   createdAt          DateTime           @default(now()) @map("created_at")
   updatedAt          DateTime           @updatedAt @map("updated_at")
 
@@ -583,8 +564,8 @@ model Proposal {
 
   learnRequest       LearnRequest          @relation(fields: [learnRequestId], references: [id], onDelete: Cascade)
   tutor              User                  @relation("TutorProposals", fields: [tutorId], references: [id], onDelete: Cascade)
-  sessionPlans       ProposalSession[] // the pitch -- exists only while PENDING
-  sessions           Session[] // the real thing -- exists only once ACCEPTED
+  sessionPlans       ProposalSession[]
+  sessions           Session[]
   shortlistedBy      ShortlistedProposal[]
   payment            Payment?
   sparksTransactions SparksTransaction[]
@@ -633,37 +614,29 @@ enum SessionStatus {
   PENDING_SCHEDULE // unlocked, learner can pick a time
   HELD // has an ACTIVE SlotHold
   BOOKED // converted to a CONFIRMED Booking
-  PENDING_REVIEW // booked time elapsed, tutor attended -- awaiting the
-  // two independent confirmation-gate branches (tutor summary + learner
-  // confirm/dispute) before COMPLETED
-  COMPLETED // session happened (mirrors Booking.status = COMPLETED)
+  PENDING_REVIEW // session finished, waiting for tutor to submit summary
+  COMPLETED // tutor submitted summary, learner confirmed
   CANCELLED
 
   @@map("session_status")
 }
 
 model Session {
-  id              String        @id @default(uuid())
-  proposalId      String        @map("proposal_id")
-  sessionNumber   Int           @map("session_number")
-  title           String
-  objective       String?       @db.Text
-  status          SessionStatus @default(LOCKED)
-  dailyRoomName   String?       @unique @map("daily_room_name")
-  dailyRoomUrl    String?       @map("daily_room_url")
-  tutorJoinedAt   DateTime?     @map("tutor_joined_at")
-  learnerJoinedAt DateTime?     @map("learner_joined_at")
-
-  // Parallel confirmation gate -- two independent tracks, deliberately not
-  // a single sequential status. Completion is a pure AND-gate on
-  // summarySubmittedAt + learnerConfirmedAt both becoming non-null, checked
-  // at write time (SessionsService.tryCompleteIfBothBranchesReady), not
-  // stored as a separate derived flag.
-  summary            String?   @db.Text
-  summarySubmittedAt DateTime? @map("summary_submitted_at")
-  learnerConfirmedAt DateTime? @map("learner_confirmed_at")
-  disputeReason      String?   @db.Text @map("dispute_reason")
-  disputedAt         DateTime? @map("disputed_at")
+  id                 String        @id @default(uuid())
+  proposalId         String        @map("proposal_id")
+  sessionNumber      Int           @map("session_number")
+  title              String
+  objective          String?       @db.Text
+  status             SessionStatus @default(LOCKED)
+  dailyRoomName      String?       @unique @map("daily_room_name")
+  dailyRoomUrl       String?       @map("daily_room_url")
+  tutorJoinedAt      DateTime?     @map("tutor_joined_at")
+  learnerJoinedAt    DateTime?     @map("learner_joined_at")
+  summary            String?       @db.Text
+  summarySubmittedAt DateTime?     @map("summary_submitted_at")
+  learnerConfirmedAt DateTime?     @map("learner_confirmed_at")
+  disputeReason      String?       @map("dispute_reason") @db.Text
+  disputedAt         DateTime?     @map("disputed_at")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -684,7 +657,7 @@ model Session {
 model Announcement {
   id        String   @id @default(uuid())
   sessionId String   @map("session_id")
-  authorId  String   @map("author_id") // tutor OR learner
+  authorId  String   @map("author_id")
   content   String   @db.Text
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -727,7 +700,7 @@ model AnnouncementAttachment {
 }
 
 enum SubmissionStatus {
-  ASSIGNED // default -- nothing submitted yet
+  ASSIGNED
   SUBMITTED
   EXCUSED
 
@@ -736,9 +709,7 @@ enum SubmissionStatus {
 
 model Assignment {
   id           String    @id @default(uuid())
-  sessionId    String    @unique @map("session_id") // @unique enforces
-  // "at most one assignment per session" at the database level, not
-  // just as an app-level convention
+  sessionId    String    @unique @map("session_id")
   title        String
   instructions String?   @db.Text
   dueAt        DateTime? @map("due_at")
@@ -770,8 +741,7 @@ model AssignmentAttachment {
 
 model AssignmentSubmission {
   id           String           @id @default(uuid())
-  assignmentId String           @unique @map("assignment_id") // 1:1 --
-  // only one learner ever possible per assignment
+  assignmentId String           @unique @map("assignment_id")
   status       SubmissionStatus @default(ASSIGNED)
   submittedAt  DateTime?        @map("submitted_at")
 
@@ -884,7 +854,7 @@ model Conversation {
   learner  User      @relation("LearnerConversations", fields: [learnerId], references: [id], onDelete: Cascade)
   messages Message[]
 
-  @@unique([tutorId, learnerId]) // exactly one continuous thread per pair
+  @@unique([tutorId, learnerId])
   @@index([tutorId])
   @@index([learnerId])
   @@map("conversations")
@@ -1015,8 +985,7 @@ model PaymentDispute {
 }
 
 model StripeWebhookEvent {
-  id          String   @id // the Stripe event id itself, not a
-  // generated uuid -- this IS the deduplication key
+  id          String   @id // the Stripe event id itself, not a generated uuid -- this IS the deduplication key
   type        String
   processedAt DateTime @default(now()) @map("processed_at")
 
@@ -1074,7 +1043,7 @@ model Feedback {
   proposalId  String   @map("proposal_id")
   authorId    String   @map("author_id") // who is LEAVING this feedback
   aboutUserId String   @map("about_user_id") // who is being reviewed
-  rating      Int // 1-5, enforced by CHECK constraint (see migration)
+  rating      Int // 1-5 stars
   comment     String?  @db.Text
   createdAt   DateTime @default(now()) @map("created_at")
 
@@ -1082,9 +1051,7 @@ model Feedback {
   author    User     @relation("FeedbackAuthor", fields: [authorId], references: [id], onDelete: Cascade)
   aboutUser User     @relation("FeedbackAboutUser", fields: [aboutUserId], references: [id], onDelete: Cascade)
 
-  @@unique([proposalId, authorId]) // exactly one feedback per author per
-  // course -- this is what makes "has the other party submitted yet" a
-  // simple existence check, not something needing extra state
+  @@unique([proposalId, authorId])
   @@index([aboutUserId])
   @@map("feedbacks")
 }
