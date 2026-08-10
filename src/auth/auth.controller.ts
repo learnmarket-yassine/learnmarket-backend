@@ -65,6 +65,25 @@ export class AuthController {
     };
   }
 
+  @Public()
+  @Post('admin/login')
+  @HttpCode(HttpStatus.OK)
+  async adminLogin(
+    @Body() dto: LoginDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const tokens = await this.auth.adminLogin(
+      dto.email,
+      dto.password,
+      dto.deviceId,
+      dto.deviceName,
+    );
+    this.setRefreshCookie(res, tokens.refreshToken);
+    return {
+      token: tokens.accessToken,
+    };
+  }
+
   // --- Refresh --------------------------------------------------------------
 
   @Public()
@@ -154,8 +173,6 @@ export class AuthController {
     return this.auth.resetPassword(dto.resetToken, dto.newPassword);
   }
   // --- Helpers --------------------------------------------------------------
-
-  /** Web sends the token via httpOnly cookie; mobile sends it in the body. */
   private extractRefreshToken(req: Request, bodyToken?: string): string {
     const cookieToken = (req.cookies as Record<string, string> | undefined)?.[
       REFRESH_COOKIE

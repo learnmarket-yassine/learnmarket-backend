@@ -2,6 +2,7 @@ import {
   Injectable,
   UnauthorizedException,
   ConflictException,
+  ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -66,9 +67,6 @@ export class AuthService {
     const passwordHash = await argon2.hash(signupUserDto.password);
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { confirmPassword, ...userData } = signupUserDto;
-
-    // Created atomically so a user never ends up without a profile row:
-    // one role-specific profile per user, enforced by the unique userId column.
     const user = await this.prisma.$transaction(async (tx) => {
       const created = await tx.user.create({
         data: { ...userData, password: passwordHash },
@@ -90,10 +88,44 @@ export class AuthService {
     deviceId?: string,
     deviceName?: string,
   ): Promise<TokenPair> {
+    return this.authenticate(
+      email,
+      password,
+      [UserRole.LEARNER, UserRole.TUTOR],
+      'Please use the admin login',
+      deviceId,
+      deviceName,
+    );
+  }
+
+  async adminLogin(
+    email: string,
+    password: string,
+    deviceId?: string,
+    deviceName?: string,
+  ): Promise<TokenPair> {
+    return this.authenticate(
+      email,
+      password,
+      [UserRole.ADMIN],
+      'Access restricted to administrators',
+      deviceId,
+      deviceName,
+    );
+  }
+  private async authenticate(
+    email: string,
+    password: string,
+    allowedRoles: UserRole[],
+    forbiddenMessage: string,
+    deviceId?: string,
+    deviceName?: string,
+  ): Promise<TokenPair> {
     const user = await this.getUserAndCheckPassword(password, email);
-    // Generate a family id if the client didn't supply one. Reusing the
-    // same id on a later login overwrites the family's Redis entry, which
-    // implicitly invalidates whatever refresh token that device held.
+    if (!allowedRoles.includes(user.role)) {
+      throw new ForbiddenException(forbiddenMessage);
+    }
+
     const resolvedFamilyId = deviceId ?? randomUUID();
 
     return this.issueTokens(user, resolvedFamilyId, deviceName);
@@ -111,9 +143,6 @@ export class AuthService {
   // ---------------------------------------------------------------------------
 
   async refresh(rawToken: string): Promise<TokenPair> {
-    // Rotation, family lookup, and reuse detection are all handled
-    // atomically inside RefreshTokenService — a mismatched/replayed token
-    // throws 401 there (and revokes the family on genuine reuse).
     const rotated = await this.refreshTokens.rotate(rawToken);
 
     const user = await this.users.findById(rotated.userId);
@@ -131,10 +160,6 @@ export class AuthService {
   // ---------------------------------------------------------------------------
   // Logout
   // ---------------------------------------------------------------------------
-
-  // Revoke a single device session by its raw token (the current device).
-  // Best-effort: an already-invalid/expired token is treated as "already
-  // logged out" rather than an error.
   async logout(rawToken: string): Promise<{ message: string }> {
     const identity = this.refreshTokens.identify(rawToken);
     if (identity) {
