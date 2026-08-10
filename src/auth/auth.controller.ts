@@ -12,6 +12,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import ms, { type StringValue } from 'ms';
 import type { Request, Response } from 'express';
 
 import { AuthService } from './auth.service';
@@ -168,7 +169,10 @@ export class AuthController {
   }
 
   private setRefreshCookie(res: Response, token: string): void {
-    const days = this.config.get<number>('REFRESH_TOKEN_EXPIRES_DAYS', 7);
+    const refreshTtl = this.config.get<StringValue>(
+      'JWT_REFRESH_EXPIRES_IN',
+      '7d' as StringValue,
+    );
     const isProd = this.config.get<string>('NODE_ENV') === 'production';
     res.cookie(REFRESH_COOKIE, token, {
       httpOnly: true,
@@ -176,7 +180,7 @@ export class AuthController {
       sameSite: isProd ? 'none' : 'lax',
       domain: undefined,
       path: '/',
-      maxAge: days * 24 * 60 * 60 * 1000,
+      maxAge: ms(refreshTtl),
     });
   }
 

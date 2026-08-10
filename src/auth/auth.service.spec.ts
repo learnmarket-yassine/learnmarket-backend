@@ -6,6 +6,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { EmailService } from '../email/email.service';
 import { RedisService } from '../redis/redis.service';
+import { RefreshTokenService } from './refresh-token.service';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -20,6 +21,7 @@ describe('AuthService', () => {
         { provide: ConfigService, useValue: {} },
         { provide: EmailService, useValue: {} },
         { provide: RedisService, useValue: {} },
+        { provide: RefreshTokenService, useValue: {} },
       ],
     }).compile();
 
