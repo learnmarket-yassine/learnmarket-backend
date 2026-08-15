@@ -3,6 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { SessionsService } from '../../sessions/services/sessions.service';
 import { DailyService } from '../../sessions/services/daily.service';
 import { PayoutsService } from '../../payments/services/payouts.service';
+import { NotificationsService } from '../../notifications/notifications.service';
 import { UploadService } from '../../storage/upload.service';
 import { BookingsCompletionCron } from './bookings-completion.cron';
 
@@ -21,6 +22,7 @@ describe('BookingsCompletionCron (integration, real DB)', () => {
         PrismaService,
         BookingsCompletionCron,
         SessionsService,
+        { provide: NotificationsService, useValue: { create: jest.fn() } },
         { provide: DailyService, useValue: {} },
         { provide: UploadService, useValue: {} },
         {

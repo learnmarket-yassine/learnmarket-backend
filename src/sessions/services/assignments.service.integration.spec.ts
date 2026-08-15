@@ -1,6 +1,7 @@
 import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../prisma/prisma.service';
+import { NotificationsService } from '../../notifications/notifications.service';
 import { UploadService } from '../../storage/upload.service';
 import { AssignmentsService } from './assignments.service';
 import { SessionsService } from './sessions.service';
@@ -23,6 +24,7 @@ describe('AssignmentsService (integration, real DB)', () => {
         PrismaService,
         SessionsService,
         AssignmentsService,
+        { provide: NotificationsService, useValue: { create: jest.fn() } },
         { provide: DailyService, useValue: {} },
         {
           provide: UploadService,

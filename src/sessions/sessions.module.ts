@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { AuthModule } from '../auth/auth.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { PaymentsModule } from '../payments/payments.module';
 import { DailyModule } from './daily.module';
 import { AnnouncementsController } from './controllers/announcements.controller';
@@ -13,7 +14,7 @@ import { SessionsService } from './services/sessions.service';
 import { SessionReviewAutoResolveCron } from './services/session-review-auto-resolve.cron';
 
 @Module({
-  imports: [AuthModule, DailyModule, PaymentsModule],
+  imports: [AuthModule, DailyModule, PaymentsModule, NotificationsModule],
   providers: [
     SessionsService,
     AnnouncementsService,

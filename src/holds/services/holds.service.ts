@@ -6,7 +6,13 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { Booking, Prisma, SessionStatus } from '@prisma/client';
+import {
+  Booking,
+  NotificationType,
+  Prisma,
+  SessionStatus,
+} from '@prisma/client';
+import { NotificationsService } from '../../notifications/notifications.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SessionsService } from '../../sessions/services/sessions.service';
 import { CreateHoldDto } from '../dto/create-hold.dto';
@@ -35,6 +41,7 @@ export class HoldsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly sessionsService: SessionsService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async requestHold(learnerId: string, dto: CreateHoldDto) {
@@ -219,6 +226,14 @@ export class HoldsService {
     } catch (err) {
       this.logger.error('Daily meeting provisioning failed', err);
     }
+
+    await this.notifications.create(
+      booking.tutorId,
+      NotificationType.SESSION_SCHEDULED,
+      isReschedule ? 'Session rescheduled' : 'Session scheduled',
+      `A session was scheduled for ${booking.startTime.toISOString()}.`,
+      { bookingId: booking.id, sessionId: booking.sessionId },
+    );
 
     return booking;
   }

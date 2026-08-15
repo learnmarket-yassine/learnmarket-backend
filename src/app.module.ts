@@ -28,6 +28,7 @@ import { TutorVerificationModule } from './tutor-verification/tutor-verification
 import { PaymentsModule } from './payments/payments.module';
 import { SparksModule } from './sparks/sparks.module';
 import { FeedbackModule } from './feedback/feedback.module';
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
   imports: [
@@ -60,6 +61,7 @@ import { FeedbackModule } from './feedback/feedback.module';
     PaymentsModule,
     SparksModule,
     FeedbackModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [

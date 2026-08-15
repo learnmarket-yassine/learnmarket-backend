@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { PaymentStatus, Prisma } from '@prisma/client';
+import { NotificationType, PaymentStatus, Prisma } from '@prisma/client';
 import * as Sentry from '@sentry/nestjs';
 import Stripe from 'stripe';
+import { NotificationsService } from '../../notifications/notifications.service';
 import { ProposalsService } from '../../proposals/services/proposals.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SparksService } from '../../sparks/services/sparks.service';
@@ -18,6 +19,7 @@ export class WebhookHandlerService {
     private readonly payoutsService: PayoutsService,
     private readonly paymentsGateway: PaymentsGateway,
     private readonly sparksService: SparksService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async handle(event: Stripe.Event): Promise<{ received: true }> {
@@ -26,7 +28,11 @@ export class WebhookHandlerService {
     });
     if (alreadyProcessed) return { received: true };
     let retryOnboardingAccountId: string | null = null;
-    let acceptedFor: { learnerId: string; proposalId: string } | null = null;
+    let acceptedFor: {
+      learnerId: string;
+      tutorId: string;
+      proposalId: string;
+    } | null = null;
 
     switch (event.type) {
       case 'payment_intent.succeeded':
@@ -77,6 +83,13 @@ export class WebhookHandlerService {
         acceptedFor.learnerId,
         acceptedFor.proposalId,
       );
+      await this.notifications.create(
+        acceptedFor.tutorId,
+        NotificationType.PROPOSAL_HIRED,
+        'Your proposal was hired',
+        'A learner accepted your proposal and payment was confirmed.',
+        { proposalId: acceptedFor.proposalId },
+      );
     }
 
     return { received: true };
@@ -91,7 +104,11 @@ export class WebhookHandlerService {
   private async handlePaymentSucceeded(
     tx: Prisma.TransactionClient,
     event: Stripe.Event,
-  ): Promise<{ learnerId: string; proposalId: string } | null> {
+  ): Promise<{
+    learnerId: string;
+    tutorId: string;
+    proposalId: string;
+  } | null> {
     const paymentIntent = event.data.object as Stripe.PaymentIntent;
 
     if (paymentIntent.metadata?.type === 'sparks_purchase') {
@@ -114,8 +131,16 @@ export class WebhookHandlerService {
       data: { status: PaymentStatus.SUCCEEDED, succeededAt: new Date() },
     });
     await this.proposalsService.runAcceptTransaction(tx, payment.proposalId);
+    const proposal = await tx.proposal.findUniqueOrThrow({
+      where: { id: payment.proposalId },
+      select: { tutorId: true },
+    });
 
-    return { learnerId: payment.learnerId, proposalId: payment.proposalId };
+    return {
+      learnerId: payment.learnerId,
+      tutorId: proposal.tutorId,
+      proposalId: payment.proposalId,
+    };
   }
 
   private async handlePaymentFailed(

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { MessagingModule } from '../messaging/messaging.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { SparksModule } from '../sparks/sparks.module';
 import { ProposalsService } from './services/proposals.service';
 import { ShortlistedProposalsService } from './services/shortlisted-proposals.service';
@@ -8,7 +9,7 @@ import { ProposalsController } from './controllers/proposals.controller';
 import { ShortlistedProposalsController } from './controllers/shortlisted-proposals.controller';
 
 @Module({
-  imports: [MessagingModule, SparksModule],
+  imports: [MessagingModule, SparksModule, NotificationsModule],
   providers: [ProposalsService, ShortlistedProposalsService],
   controllers: [ShortlistedProposalsController, ProposalsController],
   exports: [ProposalsService],
