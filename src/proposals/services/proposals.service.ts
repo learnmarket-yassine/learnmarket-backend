@@ -8,6 +8,7 @@ import {
 import {
   LearnRequestStatus,
   LearnRequestType,
+  NotificationType,
   PayoutMethod,
   Prisma,
   Proposal,
@@ -19,6 +20,7 @@ import {
 import { AuthUser } from '../../common/decorators/current-user.decorator';
 import { applyServiceFee, getFeeBreakdown } from '../../common/utils/fee.util';
 import { MessagingService } from '../../messaging/services/messaging.service';
+import { NotificationsService } from '../../notifications/notifications.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SparksService } from '../../sparks/services/sparks.service';
 import { CreateProposalDto } from '../dto/create-proposal.dto';
@@ -51,6 +53,7 @@ export class ProposalsService {
     private readonly prisma: PrismaService,
     private readonly messaging: MessagingService,
     private readonly sparksService: SparksService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   private withFeeBreakdown<T extends { totalPrice: Prisma.Decimal }>(
@@ -115,7 +118,7 @@ export class ProposalsService {
         ? PayoutMethod.ON_COMPLETION
         : (dto.payoutMethod ?? PayoutMethod.ON_COMPLETION);
 
-    return this.prisma.$transaction(async (tx) => {
+    const created = await this.prisma.$transaction(async (tx) => {
       const proposal = await tx.proposal.create({
         data: {
           learnRequestId,
@@ -148,6 +151,18 @@ export class ProposalsService {
       });
       return this.withFeeBreakdown(created);
     });
+
+    // Fired after the transaction commits -- a notification for a proposal
+    // that ultimately didn't get created would be worse than a missed one.
+    await this.notifications.create(
+      learnRequest.learnerId,
+      NotificationType.PROPOSAL_RECEIVED,
+      'New proposal received',
+      'You received a new proposal on your learn request.',
+      { proposalId: created.id, learnRequestId },
+    );
+
+    return created;
   }
 
   async findOneForViewer(viewer: AuthUser, id: string) {

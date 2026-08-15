@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { ProposalsModule } from '../proposals/proposals.module';
 import { SparksModule } from '../sparks/sparks.module';
 import { DailyModule } from '../sessions/daily.module';
@@ -23,6 +24,7 @@ import { AdminTransactionsController } from './controllers/admin-transactions.co
     StripeModule,
     SparksModule,
     DailyModule,
+    NotificationsModule,
   ],
   providers: [
     PaymentsService,

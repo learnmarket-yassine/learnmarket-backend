@@ -40,6 +40,17 @@ enum TutorVerificationStatus {
   @@map("tutor_verification_status")
 }
 
+enum NotificationType {
+  PROPOSAL_RECEIVED
+  PROPOSAL_HIRED
+  SESSION_SCHEDULED
+  SESSION_REPORTED
+  VERIFICATION_UPDATED
+  DISPUTE_RESOLVED
+
+  @@map("notification_type")
+}
+
 model User {
   id                           String                       @id @default(uuid())
   email                        String                       @unique
@@ -89,6 +100,7 @@ model User {
   tutorSparksTransactions      SparksTransaction[]          @relation("TutorSparksTransactions")
   feedbackGiven                Feedback[]                   @relation("FeedbackAuthor")
   feedbackReceived             Feedback[]                   @relation("FeedbackAboutUser")
+  notifications                Notification[]
 
   @@index([email])
   @@index([role])
@@ -1054,4 +1066,20 @@ model Feedback {
   @@unique([proposalId, authorId])
   @@index([aboutUserId])
   @@map("feedbacks")
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String           @map("user_id")
+  type      NotificationType
+  title     String
+  message   String           @db.Text
+  data      Json?
+  isRead    Boolean          @default(false) @map("is_read")
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@map("notifications")
 }

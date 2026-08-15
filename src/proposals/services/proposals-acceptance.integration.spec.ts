@@ -7,6 +7,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MessagingService } from '../../messaging/services/messaging.service';
+import { NotificationsService } from '../../notifications/notifications.service';
 import { SparksService } from '../../sparks/services/sparks.service';
 import { ProposalsService } from './proposals.service';
 
@@ -34,6 +35,7 @@ describe('ProposalsService.runAcceptTransaction (integration, real DB)', () => {
           provide: SparksService,
           useValue: { spendSparksForProposal: jest.fn() },
         },
+        { provide: NotificationsService, useValue: { create: jest.fn() } },
       ],
     }).compile();
 

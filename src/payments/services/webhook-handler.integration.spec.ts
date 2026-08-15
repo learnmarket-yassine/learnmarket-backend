@@ -10,6 +10,7 @@ import {
 import type Stripe from 'stripe';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MessagingService } from '../../messaging/services/messaging.service';
+import { NotificationsService } from '../../notifications/notifications.service';
 import { ProposalsService } from '../../proposals/services/proposals.service';
 import { SparksService } from '../../sparks/services/sparks.service';
 import { StripeService } from './stripe.service';
@@ -40,6 +41,7 @@ describe('WebhookHandlerService (integration, real DB)', () => {
         PayoutsService,
         WebhookHandlerService,
         SparksService,
+        { provide: NotificationsService, useValue: { create: jest.fn() } },
         {
           provide: MessagingService,
           useValue: { recomputeConversationActiveState: jest.fn() },

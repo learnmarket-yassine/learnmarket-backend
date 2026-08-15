@@ -4,7 +4,8 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { TutorVerificationStatus } from '@prisma/client';
+import { NotificationType, TutorVerificationStatus } from '@prisma/client';
+import { NotificationsService } from '../../notifications/notifications.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ListVerificationsQueryDto } from '../dto/list-verifications-query.dto';
 
@@ -40,7 +41,10 @@ const VERIFICATION_DETAIL_INCLUDE = {
 
 @Injectable()
 export class TutorVerificationService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   async submitForVerification(tutorId: string) {
     const profile = await this.prisma.tutorProfile.findUnique({
@@ -100,6 +104,10 @@ export class TutorVerificationService {
         'This profile is no longer pending review -- another admin may have already acted on it',
       );
     }
+    await this.notifyVerificationUpdated(
+      tutorId,
+      'Your profile was approved. You can now create proposals.',
+    );
     return this.prisma.tutorProfile.findUniqueOrThrow({
       where: { userId: tutorId },
     });
@@ -121,6 +129,10 @@ export class TutorVerificationService {
     if (result.count === 0) {
       throw new ConflictException('This profile is no longer pending review');
     }
+    await this.notifyVerificationUpdated(
+      tutorId,
+      'Your verification submission was rejected. Check your profile for details.',
+    );
     return this.prisma.tutorProfile.findUniqueOrThrow({
       where: { userId: tutorId },
     });
@@ -142,9 +154,22 @@ export class TutorVerificationService {
     if (result.count === 0) {
       throw new ConflictException('Only approved profiles can be revoked');
     }
+    await this.notifyVerificationUpdated(
+      tutorId,
+      'Your verified status was revoked. Check your profile for details.',
+    );
     return this.prisma.tutorProfile.findUniqueOrThrow({
       where: { userId: tutorId },
     });
+  }
+
+  private notifyVerificationUpdated(tutorId: string, message: string) {
+    return this.notifications.create(
+      tutorId,
+      NotificationType.VERIFICATION_UPDATED,
+      'Verification status updated',
+      message,
+    );
   }
 
   async listPendingVerifications(query: ListVerificationsQueryDto) {

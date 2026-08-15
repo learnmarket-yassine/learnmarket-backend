@@ -6,10 +6,12 @@ import {
 } from '@nestjs/common';
 import {
   LearnRequestType,
+  NotificationType,
   PaymentStatus,
   Prisma,
   SessionStatus,
 } from '@prisma/client';
+import { NotificationsService } from '../../notifications/notifications.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DailyService } from './daily.service';
 import {
@@ -42,6 +44,7 @@ export class SessionsService {
     private readonly prisma: PrismaService,
     private readonly dailyService: DailyService,
     private readonly payoutsService: PayoutsService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async assertParticipant(userId: string, sessionId: string) {
@@ -290,10 +293,20 @@ export class SessionsService {
 
     // Deliberately does NOT call tryCompleteIfBothBranchesReady -- a dispute
     // halts the gate permanently, regardless of the tutor branch's state.
-    return this.prisma.session.update({
+    const disputed = await this.prisma.session.update({
       where: { id: sessionId },
       data: { disputeReason: reason, disputedAt: new Date() },
     });
+
+    await this.notifications.create(
+      session.proposal.tutorId,
+      NotificationType.SESSION_REPORTED,
+      'Session reported',
+      'A learner reported an issue with one of your sessions.',
+      { sessionId },
+    );
+
+    return disputed;
   }
 
   async tryCompleteIfBothBranchesReady(sessionId: string): Promise<void> {
