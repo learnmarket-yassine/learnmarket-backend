@@ -9,6 +9,7 @@ import {
 import * as Sentry from '@sentry/nestjs';
 import { getFeeBreakdown } from '../../common/utils/fee.util';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PlatformSettingsService } from '../../platform-settings/services/platform-settings.service';
 import { toCents } from '../utils/money.util';
 import { sessionPayoutAmount } from '../utils/payout-math.util';
 import { StripeService } from './stripe.service';
@@ -26,6 +27,7 @@ export class PayoutsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly stripe: StripeService,
+    private readonly platformSettings: PlatformSettingsService,
   ) {}
 
   async recordPayoutForCompletedSession(
@@ -47,9 +49,12 @@ export class PayoutsService {
       return null;
     }
 
+    const { serviceFeePercent } = await this.platformSettings.getSettings();
     const tutorEarnedTotal = new Prisma.Decimal(
-      getFeeBreakdown(new Prisma.Decimal(proposal.totalPrice).toNumber())
-        .tutorTotal,
+      getFeeBreakdown(
+        new Prisma.Decimal(proposal.totalPrice).toNumber(),
+        serviceFeePercent,
+      ).tutorTotal,
     );
     const totalSessions = await tx.session.count({
       where: { proposalId: proposal.id },
@@ -95,6 +100,31 @@ export class PayoutsService {
       },
     });
     return { payoutId: payout.id, shouldRelease: enabled };
+  }
+
+  async previewSessionAmount(
+    session: { sessionNumber: number },
+    proposal: {
+      totalPrice: Prisma.Decimal;
+      payment: { currency: string } | null;
+    },
+    totalSessions: number,
+  ): Promise<{ amount: number; currency: string } | null> {
+    if (!proposal.payment) return null;
+
+    const { serviceFeePercent } = await this.platformSettings.getSettings();
+    const tutorEarnedTotal = new Prisma.Decimal(
+      getFeeBreakdown(
+        new Prisma.Decimal(proposal.totalPrice).toNumber(),
+        serviceFeePercent,
+      ).tutorTotal,
+    );
+    const amount = sessionPayoutAmount(
+      tutorEarnedTotal,
+      session.sessionNumber,
+      totalSessions,
+    );
+    return { amount: amount.toNumber(), currency: proposal.payment.currency };
   }
 
   async releasePayout(payoutId: string): Promise<void> {
@@ -158,13 +188,6 @@ export class PayoutsService {
     }
   }
 
-  /**
-   * Tutor-scoped. Deliberately does NOT filter to RELEASED only -- a tutor
-   * with a HELD_FOR_REVIEW payout needs to see that it happened (no-show
-   * guard tripped), and a CANCELLED one needs to stay visible as history
-   * rather than silently disappearing. totalEarned below is the only place
-   * that narrows to RELEASED.
-   */
   async getMyPayouts(tutorId: string, query: GetMyPayoutsQueryDto) {
     const where: Prisma.PayoutWhereInput = { tutorId };
     if (query.status) where.status = query.status;

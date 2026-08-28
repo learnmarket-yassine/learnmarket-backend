@@ -9,7 +9,10 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
-import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import {
+  type AuthUser,
+  CurrentUser,
+} from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { SessionsService } from '../services/sessions.service';
@@ -28,8 +31,12 @@ export class SessionsController {
   }
 
   @Get(':id')
-  getContext(@CurrentUser('id') userId: string, @Param('id') id: string) {
-    return this.sessions.getSessionContext(userId, id);
+  getContext(
+    @CurrentUser('id') userId: string,
+    @Param('id') id: string,
+    @CurrentUser() viewer: AuthUser,
+  ) {
+    return this.sessions.getSessionContext(userId, id, viewer);
   }
 
   @Get(':id/meeting')

@@ -4,6 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { UploadService } from '../../storage/upload.service';
 import { PayoutsService } from '../../payments/services/payouts.service';
+import { PaymentsService } from '../../payments/services/payments.service';
 import { SessionsService } from './sessions.service';
 import { DailyRoom, DailyService } from './daily.service';
 
@@ -69,6 +70,10 @@ describe('SessionsService (integration, real DB)', () => {
             recordPayoutForCompletedSession: recordPayoutMock,
             releasePayout: releasePayoutMock,
           },
+        },
+        {
+          provide: PaymentsService,
+          useValue: { refundSession: jest.fn().mockResolvedValue(undefined) },
         },
       ],
     }).compile();
@@ -427,10 +432,11 @@ describe('SessionsService (integration, real DB)', () => {
 
       const session = await prisma.session.findUniqueOrThrow({
         where: { id: sessionId },
+        include: { dispute: true },
       });
-      expect(session.status).toBe('PENDING_REVIEW');
-      expect(session.disputedAt).not.toBeNull();
-      expect(session.disputeReason).toBe('Tutor left early.');
+      expect(session.status).toBe('DISPUTED');
+      expect(session.dispute).not.toBeNull();
+      expect(session.dispute?.reason).toBe('Tutor left early.');
 
       // Re-running the gate check directly (as the auto-resolve cron would)
       // must never complete a disputed session.
@@ -438,7 +444,7 @@ describe('SessionsService (integration, real DB)', () => {
       const after = await prisma.session.findUniqueOrThrow({
         where: { id: sessionId },
       });
-      expect(after.status).toBe('PENDING_REVIEW');
+      expect(after.status).toBe('DISPUTED');
     });
 
     it('rejects a second summary submission for the same session', async () => {

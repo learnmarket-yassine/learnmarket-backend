@@ -3,6 +3,7 @@ import { AuthModule } from '../auth/auth.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { ProposalsModule } from '../proposals/proposals.module';
 import { SparksModule } from '../sparks/sparks.module';
+import { PlatformSettingsModule } from '../platform-settings/platform-settings.module';
 import { DailyModule } from '../sessions/daily.module';
 import { StripeModule } from './stripe.module';
 import { PaymentsService } from './services/payments.service';
@@ -25,6 +26,7 @@ import { AdminTransactionsController } from './controllers/admin-transactions.co
     SparksModule,
     DailyModule,
     NotificationsModule,
+    PlatformSettingsModule,
   ],
   providers: [
     PaymentsService,
@@ -41,6 +43,6 @@ import { AdminTransactionsController } from './controllers/admin-transactions.co
     AdminPaymentDisputesController,
     AdminTransactionsController,
   ],
-  exports: [PayoutsService, StripeModule],
+  exports: [PaymentsService, PayoutsService, StripeModule],
 })
 export class PaymentsModule {}

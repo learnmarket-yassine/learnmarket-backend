@@ -5,13 +5,22 @@ import { SparksService } from '../../sparks/services/sparks.service';
 
 describe('LearnRequestsService.cancel Sparks refund (integration, real DB)', () => {
   const prisma = new PrismaClient();
-  const sparks = new SparksService(prisma as never, {} as never);
+  // Matches the default seeded by the platform_settings migration.
+  const platformSettings = {
+    getSettings: async () => ({ proposalSparksCost: 4, serviceFeePercent: 10 }),
+  };
+  const sparks = new SparksService(
+    prisma as never,
+    {} as never,
+    platformSettings as never,
+  );
   const service = new LearnRequestsService(
     prisma as never,
     {} as never,
     {} as never,
     {} as never,
     sparks,
+    {} as never,
   );
 
   let tutorId: string;

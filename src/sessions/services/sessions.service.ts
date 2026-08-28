@@ -5,10 +5,14 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  DisputeOutcome,
+  LearnRequest,
   LearnRequestType,
   NotificationType,
   PaymentStatus,
   Prisma,
+  Proposal,
+  Session,
   SessionStatus,
 } from '@prisma/client';
 import { NotificationsService } from '../../notifications/notifications.service';
@@ -18,6 +22,9 @@ import {
   PayoutsService,
   PayoutTrigger,
 } from '../../payments/services/payouts.service';
+import { PaymentsService } from '../../payments/services/payments.service';
+import { ListSessionDisputesQueryDto } from '../dto/list-session-disputes-query.dto';
+import { AuthUser } from '../../common/decorators/current-user.decorator';
 
 const JOIN_WINDOW_BEFORE_MS = 15 * 60_000;
 const JOIN_GRACE_AFTER_MS = 30 * 60_000;
@@ -25,11 +32,47 @@ const JOIN_GRACE_AFTER_MS = 30 * 60_000;
 const SESSION_WITH_PARTICIPANTS = {
   proposal: {
     include: {
-      learnRequest: true,
-      tutor: { select: { firstname: true, lastname: true } },
+      learnRequest: {
+        select: {
+          learner: {
+            select: { firstname: true, lastname: true, avatar: true, id: true },
+          },
+        },
+      },
+      tutor: {
+        select: { firstname: true, lastname: true, avatar: true, id: true },
+      },
+      payment: { select: { currency: true } },
     },
   },
   booking: true,
+  dispute: true,
+} as const;
+
+const DISPUTE_PARTICIPANT_SELECT = {
+  id: true,
+  firstname: true,
+  lastname: true,
+  avatar: true,
+} as const;
+
+const DISPUTE_QUEUE_INCLUDE = {
+  dispute: true,
+  booking: true,
+  proposal: {
+    select: {
+      totalPrice: true,
+      payoutMethod: true,
+      payment: { select: { currency: true } },
+      tutor: { select: DISPUTE_PARTICIPANT_SELECT },
+      learnRequest: {
+        select: {
+          title: true,
+          learner: { select: DISPUTE_PARTICIPANT_SELECT },
+        },
+      },
+    },
+  },
 } as const;
 
 export type SessionWithParticipants = Awaited<
@@ -44,10 +87,15 @@ export class SessionsService {
     private readonly prisma: PrismaService,
     private readonly dailyService: DailyService,
     private readonly payoutsService: PayoutsService,
+    private readonly paymentsService: PaymentsService,
     private readonly notifications: NotificationsService,
   ) {}
 
-  async assertParticipant(userId: string, sessionId: string) {
+  async assertParticipant(
+    userId: string,
+    sessionId: string,
+    currentUser?: AuthUser,
+  ) {
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
       include: SESSION_WITH_PARTICIPANTS,
@@ -55,8 +103,8 @@ export class SessionsService {
     if (!session) throw new NotFoundException('Session not found');
 
     const isTutor = session.proposal.tutorId === userId;
-    const isLearner = session.proposal.learnRequest.learnerId === userId;
-    if (!isTutor && !isLearner) {
+    const isLearner = session.proposal.learnRequest.learner.id === userId;
+    if (!isTutor && !isLearner && currentUser && currentUser.role !== 'ADMIN') {
       throw new NotFoundException('Session not found');
     }
     return session;
@@ -66,8 +114,19 @@ export class SessionsService {
     return session.proposal.tutorId === userId;
   }
 
-  async getSessionContext(userId: string, sessionId: string) {
-    const session = await this.assertParticipant(userId, sessionId);
+  async getSessionContext(
+    userId: string,
+    sessionId: string,
+    currentUser: AuthUser,
+  ) {
+    const session = await this.assertParticipant(
+      userId,
+      sessionId,
+      currentUser,
+    );
+    const disputedAmount = session.dispute
+      ? await this.previewDisputedAmount(session)
+      : null;
     return {
       id: session.id,
       title: session.title,
@@ -77,14 +136,29 @@ export class SessionsService {
       tutor: {
         firstname: session.proposal.tutor.firstname,
         lastname: session.proposal.tutor.lastname,
+        id: session.proposal.tutor.id,
+        avatar: session.proposal.tutor.avatar,
+      },
+      learner: {
+        firstname: session.proposal.learnRequest.learner.firstname,
+        lastname: session.proposal.learnRequest.learner.lastname,
+        id: session.proposal.learnRequest.learner.id,
+        avatar: session.proposal.learnRequest.learner.avatar,
       },
       tutorJoinedAt: session.tutorJoinedAt,
       learnerJoinedAt: session.learnerJoinedAt,
       summary: session.summary,
       summarySubmittedAt: session.summarySubmittedAt,
       learnerConfirmedAt: session.learnerConfirmedAt,
-      disputeReason: session.disputeReason,
-      disputedAt: session.disputedAt,
+      dispute: session.dispute
+        ? {
+            reason: session.dispute.reason,
+            raisedAt: session.dispute.raisedAt,
+            outcome: session.dispute.outcome,
+            reviewNote: session.dispute.reviewNote,
+          }
+        : null,
+      disputedAmount,
       booking: session.booking
         ? {
             id: session.booking.id,
@@ -151,8 +225,16 @@ export class SessionsService {
     return this.getMeetingDetails(userId, sessionId);
   }
 
-  async getMeetingDetails(userId: string, sessionId: string) {
-    const session = await this.assertParticipant(userId, sessionId);
+  async getMeetingDetails(
+    userId: string,
+    sessionId: string,
+    currentUser?: AuthUser,
+  ) {
+    const session = await this.assertParticipant(
+      userId,
+      sessionId,
+      currentUser,
+    );
 
     if (!session.dailyRoomUrl || !session.dailyRoomName) {
       return { status: 'not_provisioned' as const, canJoinYet: false };
@@ -212,7 +294,7 @@ export class SessionsService {
     if (!session) return;
 
     const isTutor = session.proposal.tutorId === dailyUserId;
-    const isLearner = session.proposal.learnRequest.learnerId === dailyUserId;
+    const isLearner = session.proposal.learnRequest.learner.id === dailyUserId;
     if (!isTutor && !isLearner) return;
 
     const now = new Date();
@@ -238,7 +320,11 @@ export class SessionsService {
     if (!this.isTutor(session, userId)) {
       throw new NotFoundException('Session not found');
     }
-    if (session.status !== SessionStatus.PENDING_REVIEW) {
+
+    if (
+      session.status !== SessionStatus.PENDING_REVIEW &&
+      session.status !== SessionStatus.DISPUTED
+    ) {
       throw new ConflictException('This session is not awaiting review');
     }
     if (session.summarySubmittedAt) {
@@ -263,7 +349,7 @@ export class SessionsService {
     if (session.status !== SessionStatus.PENDING_REVIEW) {
       throw new ConflictException('This session is not awaiting review');
     }
-    if (session.learnerConfirmedAt || session.disputedAt) {
+    if (session.learnerConfirmedAt || session.dispute) {
       throw new ConflictException(
         'You have already responded for this session',
       );
@@ -285,18 +371,20 @@ export class SessionsService {
     if (session.status !== SessionStatus.PENDING_REVIEW) {
       throw new ConflictException('This session is not awaiting review');
     }
-    if (session.learnerConfirmedAt || session.disputedAt) {
+    if (session.learnerConfirmedAt || session.dispute) {
       throw new ConflictException(
         'You have already responded for this session',
       );
     }
-
-    // Deliberately does NOT call tryCompleteIfBothBranchesReady -- a dispute
-    // halts the gate permanently, regardless of the tutor branch's state.
-    const disputed = await this.prisma.session.update({
-      where: { id: sessionId },
-      data: { disputeReason: reason, disputedAt: new Date() },
-    });
+    const [, disputed] = await this.prisma.$transaction([
+      this.prisma.session.update({
+        where: { id: sessionId },
+        data: { status: SessionStatus.DISPUTED },
+      }),
+      this.prisma.sessionDispute.create({
+        data: { sessionId, reason },
+      }),
+    ]);
 
     await this.notifications.create(
       session.proposal.tutorId,
@@ -309,12 +397,148 @@ export class SessionsService {
     return disputed;
   }
 
+  async listDisputedSessions(query: ListSessionDisputesQueryDto) {
+    const { page, take } = query;
+    const [items, totalCount] = await this.prisma.$transaction([
+      this.prisma.session.findMany({
+        where: { status: SessionStatus.DISPUTED },
+        orderBy: { updatedAt: 'asc' },
+        skip: page * take,
+        take,
+        include: DISPUTE_QUEUE_INCLUDE,
+      }),
+      this.prisma.session.count({ where: { status: SessionStatus.DISPUTED } }),
+    ]);
+    const paginatedResult = await Promise.all(
+      items.map((item) => this.attachDisputedAmount(item)),
+    );
+    return { paginatedResult, totalCount };
+  }
+
+  async getDisputeDetail(sessionId: string) {
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      include: DISPUTE_QUEUE_INCLUDE,
+    });
+    if (!session?.dispute) throw new NotFoundException('Session not found');
+    return this.attachDisputedAmount(session);
+  }
+
+  private async attachDisputedAmount<
+    T extends {
+      sessionNumber: number;
+      proposalId: string;
+      proposal: {
+        totalPrice: Prisma.Decimal;
+        payoutMethod: string;
+        payment: { currency: string } | null;
+      };
+    },
+  >(session: T) {
+    const disputedAmount = await this.previewDisputedAmount(session);
+    return { ...session, disputedAmount };
+  }
+
+  private async previewDisputedAmount(session: {
+    sessionNumber: number;
+    proposalId: string;
+    proposal: {
+      totalPrice: Prisma.Decimal;
+      payment: { currency: string } | null;
+    };
+  }) {
+    const totalSessions = await this.prisma.session.count({
+      where: { proposalId: session.proposalId },
+    });
+    return this.payoutsService.previewSessionAmount(
+      session,
+      session.proposal,
+      totalSessions,
+    );
+  }
+  async resolveDispute(
+    sessionId: string,
+    outcome: DisputeOutcome,
+    note: string,
+  ) {
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      include: { dispute: true, proposal: { include: { learnRequest: true } } },
+    });
+    if (!session) throw new NotFoundException('Session not found');
+    if (!session.dispute) {
+      throw new ConflictException('This session was never reported');
+    }
+    if (session.status !== SessionStatus.DISPUTED) {
+      throw new ConflictException('This dispute has already been resolved');
+    }
+
+    if (outcome === DisputeOutcome.RELEASED) {
+      const trigger = await this.prisma.$transaction(async (tx) => {
+        const result = await this.completeSessionCascade(tx, sessionId);
+        await tx.sessionDispute.update({
+          where: { sessionId },
+          data: { outcome, reviewedAt: new Date(), reviewNote: note },
+        });
+        return result;
+      });
+      if (trigger?.shouldRelease) {
+        await this.payoutsService.releasePayout(trigger.payoutId);
+      }
+    } else {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.session.update({
+          where: { id: sessionId },
+          data: { status: SessionStatus.COMPLETED },
+        });
+        await tx.booking.updateMany({
+          where: { sessionId, status: 'CONFIRMED' },
+          data: { status: 'COMPLETED' },
+        });
+        await tx.sessionDispute.update({
+          where: { sessionId },
+          data: { outcome, reviewedAt: new Date(), reviewNote: note },
+        });
+        await this.advanceCourse(tx, session, session.proposal);
+      });
+      await this.paymentsService.refundSession(sessionId, note);
+    }
+
+    const learnerId = session.proposal.learnRequest.learnerId;
+    const learnerMessage =
+      outcome === DisputeOutcome.RELEASED
+        ? 'The reported session was reviewed -- payment was released to the tutor.'
+        : 'The reported session was reviewed -- you have been refunded.';
+    const tutorMessage =
+      outcome === DisputeOutcome.RELEASED
+        ? 'The reported session was reviewed -- your payment was released.'
+        : 'The reported session was reviewed -- the learner was refunded.';
+    await this.notifications.create(
+      learnerId,
+      NotificationType.DISPUTE_RESOLVED,
+      'Dispute resolved',
+      learnerMessage,
+      { sessionId },
+    );
+    await this.notifications.create(
+      session.proposal.tutorId,
+      NotificationType.DISPUTE_RESOLVED,
+      'Dispute resolved',
+      tutorMessage,
+      { sessionId },
+    );
+
+    return this.prisma.session.findUniqueOrThrow({
+      where: { id: sessionId },
+      include: { dispute: true },
+    });
+  }
+
   async tryCompleteIfBothBranchesReady(sessionId: string): Promise<void> {
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
     });
     if (!session || session.status !== SessionStatus.PENDING_REVIEW) return;
-    if (session.disputedAt) return; // permanently halted, regardless of the other branch
     if (!session.summarySubmittedAt || !session.learnerConfirmedAt) return; // still waiting on one branch
 
     const trigger = await this.prisma.$transaction((tx) =>
@@ -335,16 +559,37 @@ export class SessionsService {
     });
     if (claimed.count === 0) return null;
 
+    await tx.booking.updateMany({
+      where: { sessionId, status: 'CONFIRMED' },
+      data: { status: 'COMPLETED' },
+    });
+
     const completedSession = await tx.session.findUniqueOrThrow({
       where: { id: sessionId },
       include: { proposal: { include: { learnRequest: true, payment: true } } },
     });
     const { proposal } = completedSession;
 
+    await this.advanceCourse(tx, completedSession, proposal);
+
+    if (proposal.payment?.status !== PaymentStatus.SUCCEEDED) return null;
+
+    return this.payoutsService.recordPayoutForCompletedSession(
+      tx,
+      completedSession,
+      proposal,
+      proposal.payment,
+    );
+  }
+  private async advanceCourse(
+    tx: Prisma.TransactionClient,
+    session: Session,
+    proposal: Proposal & { learnRequest: LearnRequest },
+  ): Promise<void> {
     const nextSession = await tx.session.findFirst({
       where: {
         proposalId: proposal.id,
-        sessionNumber: { gt: completedSession.sessionNumber },
+        sessionNumber: { gt: session.sessionNumber },
       },
       orderBy: { sessionNumber: 'asc' },
     });
@@ -363,14 +608,5 @@ export class SessionsService {
         data: { status: SessionStatus.PENDING_SCHEDULE },
       });
     }
-
-    if (proposal.payment?.status !== PaymentStatus.SUCCEEDED) return null;
-
-    return this.payoutsService.recordPayoutForCompletedSession(
-      tx,
-      completedSession,
-      proposal,
-      proposal.payment,
-    );
   }
 }

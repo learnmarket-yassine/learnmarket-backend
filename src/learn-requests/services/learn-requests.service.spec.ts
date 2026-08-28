@@ -75,6 +75,7 @@ describe('LearnRequestsService.findMany', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     );
   });
 

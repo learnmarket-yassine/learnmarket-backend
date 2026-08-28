@@ -13,6 +13,7 @@ import { MessagingService } from '../../messaging/services/messaging.service';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { ProposalsService } from '../../proposals/services/proposals.service';
 import { SparksService } from '../../sparks/services/sparks.service';
+import { PlatformSettingsService } from '../../platform-settings/services/platform-settings.service';
 import { StripeService } from './stripe.service';
 import { PayoutsService } from './payouts.service';
 import { WebhookHandlerService } from './webhook-handler.service';
@@ -41,6 +42,7 @@ describe('WebhookHandlerService (integration, real DB)', () => {
         PayoutsService,
         WebhookHandlerService,
         SparksService,
+        PlatformSettingsService,
         { provide: NotificationsService, useValue: { create: jest.fn() } },
         {
           provide: MessagingService,

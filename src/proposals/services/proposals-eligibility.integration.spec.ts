@@ -5,6 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { MessagingService } from '../../messaging/services/messaging.service';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { SparksService } from '../../sparks/services/sparks.service';
+import { PlatformSettingsService } from '../../platform-settings/services/platform-settings.service';
 import { ProposalsService } from './proposals.service';
 import { CreateProposalDto } from '../dto/create-proposal.dto';
 
@@ -22,6 +23,7 @@ describe('ProposalsService.create eligibility guard (integration, real DB)', () 
       providers: [
         PrismaService,
         ProposalsService,
+        PlatformSettingsService,
         { provide: MessagingService, useValue: { recomputeConversationActiveState: jest.fn() } },
         { provide: SparksService, useValue: { spendSparksForProposal: jest.fn() } },
         { provide: NotificationsService, useValue: { create: jest.fn() } },

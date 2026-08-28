@@ -10,9 +10,14 @@ import { MessagingService } from '../../messaging/services/messaging.service';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { StripeService } from '../../payments/services/stripe.service';
 import { SparksService } from '../../sparks/services/sparks.service';
+import { PlatformSettingsService } from '../../platform-settings/services/platform-settings.service';
 import { ProposalsService } from './proposals.service';
-import { PROPOSAL_SPARKS_COST } from '../../sparks/constants/sparks.constants';
 import { CreateProposalDto } from '../dto/create-proposal.dto';
+
+// Matches the default seeded by the platform_settings migration -- these
+// tests exercise the real PlatformSettingsService against the real DB
+// rather than mocking the Sparks cost.
+const PROPOSAL_SPARKS_COST = 4;
 
 describe('ProposalsService.create <-> Sparks wiring (integration, real DB)', () => {
   let moduleRef: TestingModule;
@@ -30,6 +35,7 @@ describe('ProposalsService.create <-> Sparks wiring (integration, real DB)', () 
         PrismaService,
         ProposalsService,
         SparksService,
+        PlatformSettingsService,
         { provide: NotificationsService, useValue: { create: jest.fn() } },
         {
           provide: MessagingService,

@@ -622,12 +622,13 @@ model ProposalSession {
 }
 
 enum SessionStatus {
-  LOCKED // previous session not yet completed — cannot be scheduled
-  PENDING_SCHEDULE // unlocked, learner can pick a time
-  HELD // has an ACTIVE SlotHold
-  BOOKED // converted to a CONFIRMED Booking
-  PENDING_REVIEW // session finished, waiting for tutor to submit summary
-  COMPLETED // tutor submitted summary, learner confirmed
+  LOCKED 
+  PENDING_SCHEDULE
+  HELD
+  BOOKED
+  PENDING_REVIEW
+  DISPUTED
+  COMPLETED 
   CANCELLED
 
   @@map("session_status")
@@ -647,23 +648,44 @@ model Session {
   summary            String?       @db.Text
   summarySubmittedAt DateTime?     @map("summary_submitted_at")
   learnerConfirmedAt DateTime?     @map("learner_confirmed_at")
-  disputeReason      String?       @map("dispute_reason") @db.Text
-  disputedAt         DateTime?     @map("disputed_at")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  proposal      Proposal       @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  proposal      Proposal        @relation(fields: [proposalId], references: [id], onDelete: Cascade)
   slotHold      SlotHold?
   booking       Booking?
   announcements Announcement[]
   assignment    Assignment?
   payout        Payout?
+  dispute       SessionDispute?
 
   @@unique([proposalId, sessionNumber])
   @@index([proposalId])
   @@index([proposalId, status])
   @@map("sessions")
+}
+
+enum DisputeOutcome {
+  REFUNDED
+  RELEASED
+
+  @@map("dispute_outcome")
+}
+
+model SessionDispute {
+  id         String          @id @default(uuid())
+  sessionId  String          @unique @map("session_id")
+  reason     String          @map("reason") @db.Text
+  raisedAt   DateTime        @default(now()) @map("raised_at")
+  outcome    DisputeOutcome? @map("outcome")
+  reviewedAt DateTime?       @map("reviewed_at")
+  reviewNote String?         @map("review_note") @db.Text
+
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([outcome])
+  @@map("session_disputes")
 }
 
 model Announcement {
@@ -986,7 +1008,7 @@ model PaymentDispute {
   stripeDisputeId String   @unique @map("stripe_dispute_id")
   amount          Decimal  @map("amount") @db.Decimal(10, 2)
   reason          String?
-  status          String // Stripe's raw dispute status string, e.g. "needs_response"
+  status          String
   createdAt       DateTime @default(now()) @map("created_at")
 
   payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
@@ -1011,6 +1033,14 @@ enum SparksTransactionType {
   REFUND
 
   @@map("sparks_transaction_type")
+}
+model PlatformSettings {
+  id                 String   @id @default("singleton")
+  proposalSparksCost Int      @default(4) @map("proposal_sparks_cost")
+  serviceFeePercent  Decimal  @default(10) @map("service_fee_percent") @db.Decimal(5, 2)
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@map("platform_settings")
 }
 
 model SparksOffer {

@@ -8,6 +8,7 @@ import { AnnouncementsController } from './controllers/announcements.controller'
 import { AssignmentsController } from './controllers/assignments.controller';
 import { DailyWebhookController } from './controllers/daily-webhook.controller';
 import { SessionsController } from './controllers/sessions.controller';
+import { AdminSessionDisputesController } from './controllers/admin-session-disputes.controller';
 import { AnnouncementsService } from './services/announcements.service';
 import { AssignmentsService } from './services/assignments.service';
 import { SessionsService } from './services/sessions.service';
@@ -26,9 +27,8 @@ import { SessionReviewAutoResolveCron } from './services/session-review-auto-res
     AnnouncementsController,
     AssignmentsController,
     DailyWebhookController,
+    AdminSessionDisputesController,
   ],
-  // Exported for HoldsService (provisionMeeting/updateMeetingTime after
-  // booking confirmation) and BookingsModule (completeSessionCascade).
   exports: [SessionsService],
 })
 export class SessionsModule {}

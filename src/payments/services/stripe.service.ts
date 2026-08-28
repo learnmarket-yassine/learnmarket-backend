@@ -95,13 +95,17 @@ export class StripeService {
     paymentId: string,
     stripePaymentIntentId: string,
     amountCents: number,
+    idempotencySuffix?: string,
   ): Promise<Stripe.Refund> {
+    const idempotencyKey = idempotencySuffix
+      ? `refund-${paymentId}-${idempotencySuffix}`
+      : `refund-${paymentId}`;
     return this.stripe.refunds.create(
       {
         payment_intent: stripePaymentIntentId,
         amount: amountCents,
       },
-      { idempotencyKey: `refund-${paymentId}` },
+      { idempotencyKey },
     );
   }
 
