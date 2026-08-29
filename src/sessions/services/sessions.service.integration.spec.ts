@@ -26,9 +26,12 @@ describe('SessionsService (integration, real DB)', () => {
   let bookingStart: Date;
   let bookingEnd: Date;
 
+  // Named distinctly from the other integration specs' fixture rooms --
+  // dailyRoomName is globally unique and these suites run against the same
+  // real DB, sometimes in parallel jest workers.
   const testRoom: DailyRoom = {
-    name: 'test-room',
-    url: 'https://learnmarket.daily.co/test-room',
+    name: 'test-room-sessions-service',
+    url: 'https://learnmarket.daily.co/test-room-sessions-service',
   };
 
   beforeAll(async () => {

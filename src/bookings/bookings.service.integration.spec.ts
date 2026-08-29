@@ -21,8 +21,8 @@ describe('BookingsService (integration, real DB)', () => {
   let sessionAId: string;
 
   const testRoom: DailyRoom = {
-    name: 'test-room',
-    url: 'https://learnmarket.daily.co/test-room',
+    name: 'test-room-bookings-service',
+    url: 'https://learnmarket.daily.co/test-room-bookings-service',
   };
 
   beforeAll(async () => {

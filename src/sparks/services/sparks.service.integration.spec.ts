@@ -90,7 +90,7 @@ describe('SparksService (integration, real DB)', () => {
   });
 
   afterEach(async () => {
-    await prisma.learnRequest.deleteMany({ where: { id: learnRequestId } });
+    await prisma.learnRequest.deleteMany({ where: { learnerId } });
     await prisma.user.deleteMany({
       where: { id: { in: [tutorId, learnerId] } },
     });
@@ -111,10 +111,10 @@ describe('SparksService (integration, real DB)', () => {
     return profile.sparksBalance;
   }
 
-  async function createProposal(): Promise<string> {
+  async function createProposal(requestId = learnRequestId): Promise<string> {
     const proposal = await prisma.proposal.create({
       data: {
-        learnRequestId,
+        learnRequestId: requestId,
         tutorId,
         sessionDurationMinutes: 60,
         totalPrice: 100,
@@ -162,9 +162,22 @@ describe('SparksService (integration, real DB)', () => {
 
     it('race condition: two concurrent spends against a balance that covers exactly one both attempt, but only one succeeds and the balance never goes negative', async () => {
       await setBalance(PROPOSAL_SPARKS_COST);
+      // Two proposals for the same tutor on the same learn request can't
+      // coexist (one_active_proposal_per_tutor), so give proposalB its own
+      // request -- this test is only exercising the sparks-spend race, not
+      // proposal-eligibility rules.
+      const secondRequest = await prisma.learnRequest.create({
+        data: {
+          learnerId,
+          type: 'ONE_TIME',
+          title: 'Second request',
+          status: 'OPEN',
+          categoryId,
+        },
+      });
       const [proposalA, proposalB] = await Promise.all([
         createProposal(),
-        createProposal(),
+        createProposal(secondRequest.id),
       ]);
 
       const attempt = (proposalId: string) =>

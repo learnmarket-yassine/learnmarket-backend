@@ -104,7 +104,11 @@ export class SessionsService {
 
     const isTutor = session.proposal.tutorId === userId;
     const isLearner = session.proposal.learnRequest.learner.id === userId;
-    if (!isTutor && !isLearner && currentUser && currentUser.role !== 'ADMIN') {
+    if (
+      !isTutor &&
+      !isLearner &&
+      (!currentUser || currentUser.role !== 'ADMIN')
+    ) {
       throw new NotFoundException('Session not found');
     }
     return session;

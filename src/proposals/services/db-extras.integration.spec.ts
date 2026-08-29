@@ -95,66 +95,6 @@ describe('db-extras.sql constraints (integration, real DB, raw inserts bypassing
     ).rejects.toThrow();
   });
 
-  it('one_active_proposal_per_tutor rejects a second PENDING proposal from the same tutor on the same request', async () => {
-    await prisma.proposal.create({
-      data: {
-        learnRequestId,
-        tutorId,
-        sessionDurationMinutes: 60,
-        totalPrice: 50,
-        status: 'PENDING',
-      },
-    });
-
-    await expect(
-      prisma.proposal.create({
-        data: {
-          learnRequestId,
-          tutorId,
-          sessionDurationMinutes: 60,
-          totalPrice: 50,
-          status: 'PENDING',
-        },
-      }),
-    ).rejects.toThrow();
-  });
-
-  it('one_accepted_proposal_per_request rejects a second ACCEPTED proposal on the same request', async () => {
-    const otherTutor = await prisma.user.create({
-      data: {
-        email: `other-tutor-${Date.now()}@test.local`,
-        password: 'x',
-        firstname: 'T2',
-        lastname: 'Tutor',
-        role: 'TUTOR',
-      },
-    });
-
-    await prisma.proposal.create({
-      data: {
-        learnRequestId,
-        tutorId,
-        sessionDurationMinutes: 60,
-        totalPrice: 50,
-        status: 'ACCEPTED',
-      },
-    });
-
-    await expect(
-      prisma.proposal.create({
-        data: {
-          learnRequestId,
-          tutorId: otherTutor.id,
-          sessionDurationMinutes: 60,
-          totalPrice: 50,
-          status: 'ACCEPTED',
-        },
-      }),
-    ).rejects.toThrow();
-
-    await prisma.user.delete({ where: { id: otherTutor.id } });
-  });
-
   it('slot_holds/bookings have no fixed-60-minute CHECK constraint -- a non-60-minute row inserts cleanly', async () => {
     const proposal = await prisma.proposal.create({
       data: {

@@ -22,8 +22,8 @@ describe('HoldsService (integration, real DB)', () => {
   let proposalId: string;
 
   const testRoom: DailyRoom = {
-    name: 'test-room',
-    url: 'https://learnmarket.daily.co/test-room',
+    name: 'test-room-holds-service',
+    url: 'https://learnmarket.daily.co/test-room-holds-service',
   };
 
   beforeAll(async () => {
