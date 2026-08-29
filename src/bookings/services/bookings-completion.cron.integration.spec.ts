@@ -3,6 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { SessionsService } from '../../sessions/services/sessions.service';
 import { DailyService } from '../../sessions/services/daily.service';
 import { PayoutsService } from '../../payments/services/payouts.service';
+import { PaymentsService } from '../../payments/services/payments.service';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { UploadService } from '../../storage/upload.service';
 import { BookingsCompletionCron } from './bookings-completion.cron';
@@ -31,6 +32,10 @@ describe('BookingsCompletionCron (integration, real DB)', () => {
             recordPayoutForCompletedSession: jest.fn().mockResolvedValue(null),
             releasePayout: jest.fn().mockResolvedValue(undefined),
           },
+        },
+        {
+          provide: PaymentsService,
+          useValue: { refundSession: jest.fn().mockResolvedValue(undefined) },
         },
       ],
     }).compile();
@@ -116,7 +121,9 @@ describe('BookingsCompletionCron (integration, real DB)', () => {
   afterEach(async () => {
     await prisma.learnRequest.deleteMany({ where: { learnerId } });
     await prisma.category.delete({ where: { id: categoryId } });
-    await prisma.user.deleteMany({ where: { id: { in: [tutorId, learnerId] } } });
+    await prisma.user.deleteMany({
+      where: { id: { in: [tutorId, learnerId] } },
+    });
   });
 
   it('a session with no verified tutorJoinedAt completes immediately and never enters PENDING_REVIEW', async () => {
@@ -124,10 +131,14 @@ describe('BookingsCompletionCron (integration, real DB)', () => {
 
     await cron.completeFinishedBookings();
 
-    const session = await prisma.session.findUniqueOrThrow({ where: { id: sessionId } });
+    const session = await prisma.session.findUniqueOrThrow({
+      where: { id: sessionId },
+    });
     expect(session.status).toBe('COMPLETED');
 
-    const booking = await prisma.booking.findUniqueOrThrow({ where: { sessionId } });
+    const booking = await prisma.booking.findUniqueOrThrow({
+      where: { sessionId },
+    });
     expect(booking.status).toBe('COMPLETED');
   });
 
@@ -136,10 +147,14 @@ describe('BookingsCompletionCron (integration, real DB)', () => {
 
     await cron.completeFinishedBookings();
 
-    const session = await prisma.session.findUniqueOrThrow({ where: { id: sessionId } });
+    const session = await prisma.session.findUniqueOrThrow({
+      where: { id: sessionId },
+    });
     expect(session.status).toBe('PENDING_REVIEW');
 
-    const booking = await prisma.booking.findUniqueOrThrow({ where: { sessionId } });
+    const booking = await prisma.booking.findUniqueOrThrow({
+      where: { sessionId },
+    });
     expect(booking.status).toBe('CONFIRMED');
   });
 
@@ -149,9 +164,13 @@ describe('BookingsCompletionCron (integration, real DB)', () => {
     await cron.completeFinishedBookings();
     await cron.completeFinishedBookings();
 
-    const session = await prisma.session.findUniqueOrThrow({ where: { id: sessionId } });
+    const session = await prisma.session.findUniqueOrThrow({
+      where: { id: sessionId },
+    });
     expect(session.status).toBe('PENDING_REVIEW');
-    const booking = await prisma.booking.findUniqueOrThrow({ where: { sessionId } });
+    const booking = await prisma.booking.findUniqueOrThrow({
+      where: { sessionId },
+    });
     expect(booking.status).toBe('CONFIRMED');
   });
 });

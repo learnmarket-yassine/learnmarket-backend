@@ -4,8 +4,13 @@ import { SparksTransactionType } from '@prisma/client';
 import type Stripe from 'stripe';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StripeService } from '../../payments/services/stripe.service';
+import { PlatformSettingsService } from '../../platform-settings/services/platform-settings.service';
 import { SparksService } from './sparks.service';
-import { PROPOSAL_SPARKS_COST } from '../constants/sparks.constants';
+
+// Matches the default seeded by the platform_settings migration -- this
+// spec exercises the real PlatformSettingsService against the real DB
+// rather than mocking the Sparks cost.
+const PROPOSAL_SPARKS_COST = 4;
 
 describe('SparksService (integration, real DB)', () => {
   let moduleRef: TestingModule;
@@ -24,6 +29,7 @@ describe('SparksService (integration, real DB)', () => {
       providers: [
         PrismaService,
         SparksService,
+        PlatformSettingsService,
         {
           provide: StripeService,
           useValue: { createSparksPaymentIntent },
@@ -84,8 +90,10 @@ describe('SparksService (integration, real DB)', () => {
   });
 
   afterEach(async () => {
-    await prisma.learnRequest.deleteMany({ where: { id: learnRequestId } });
-    await prisma.user.deleteMany({ where: { id: { in: [tutorId, learnerId] } } });
+    await prisma.learnRequest.deleteMany({ where: { learnerId } });
+    await prisma.user.deleteMany({
+      where: { id: { in: [tutorId, learnerId] } },
+    });
     await prisma.category.deleteMany({ where: { id: categoryId } });
   });
 
@@ -103,10 +111,10 @@ describe('SparksService (integration, real DB)', () => {
     return profile.sparksBalance;
   }
 
-  async function createProposal(): Promise<string> {
+  async function createProposal(requestId = learnRequestId): Promise<string> {
     const proposal = await prisma.proposal.create({
       data: {
-        learnRequestId,
+        learnRequestId: requestId,
         tutorId,
         sessionDurationMinutes: 60,
         totalPrice: 100,
@@ -154,9 +162,22 @@ describe('SparksService (integration, real DB)', () => {
 
     it('race condition: two concurrent spends against a balance that covers exactly one both attempt, but only one succeeds and the balance never goes negative', async () => {
       await setBalance(PROPOSAL_SPARKS_COST);
+      // Two proposals for the same tutor on the same learn request can't
+      // coexist (one_active_proposal_per_tutor), so give proposalB its own
+      // request -- this test is only exercising the sparks-spend race, not
+      // proposal-eligibility rules.
+      const secondRequest = await prisma.learnRequest.create({
+        data: {
+          learnerId,
+          type: 'ONE_TIME',
+          title: 'Second request',
+          status: 'OPEN',
+          categoryId,
+        },
+      });
       const [proposalA, proposalB] = await Promise.all([
         createProposal(),
-        createProposal(),
+        createProposal(secondRequest.id),
       ]);
 
       const attempt = (proposalId: string) =>
@@ -277,12 +298,9 @@ describe('SparksService (integration, real DB)', () => {
       createSparksPaymentIntent.mockResolvedValue({
         id: 'pi_test',
         client_secret: 'secret_test',
-      } as unknown as Stripe.PaymentIntent);
+      });
 
-      const intent = await sparks.createSparksPurchaseIntent(
-        tutorId,
-        offer.id,
-      );
+      const intent = await sparks.createSparksPurchaseIntent(tutorId, offer.id);
 
       expect(intent.amount).toBe(2499);
       expect(intent.currency).toBe('usd');

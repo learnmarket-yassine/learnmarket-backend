@@ -18,11 +18,6 @@ export class StripeWebhookController {
     @Req() req: RawBodyRequest<Request>,
     @Headers('stripe-signature') signature: string,
   ) {
-    // Signature verification happens BEFORE anything else touches the
-    // payload -- an unverified webhook endpoint is a direct financial
-    // forgery vector. constructWebhookEvent throws on an invalid/missing
-    // signature; that error is intentionally left uncaught here so Nest
-    // returns a 400 and the request is never processed.
     const event = this.stripe.constructWebhookEvent(req.rawBody!, signature);
     return this.webhookHandler.handle(event);
   }

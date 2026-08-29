@@ -7,6 +7,7 @@ import { AssignmentsService } from './assignments.service';
 import { SessionsService } from './sessions.service';
 import { DailyService } from './daily.service';
 import { PayoutsService } from '../../payments/services/payouts.service';
+import { PaymentsService } from '../../payments/services/payments.service';
 
 describe('AssignmentsService (integration, real DB)', () => {
   let moduleRef: TestingModule;
@@ -36,6 +37,7 @@ describe('AssignmentsService (integration, real DB)', () => {
           },
         },
         { provide: PayoutsService, useValue: {} },
+        { provide: PaymentsService, useValue: {} },
       ],
     }).compile();
 

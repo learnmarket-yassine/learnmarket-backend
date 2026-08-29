@@ -17,7 +17,10 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { StripeService } from './stripe.service';
 import { DailyService } from '../../sessions/services/daily.service';
 import { toCents } from '../utils/money.util';
-import { amountThroughSession } from '../utils/payout-math.util';
+import {
+  amountThroughSession,
+  sessionPayoutAmount,
+} from '../utils/payout-math.util';
 import { GetMyPaymentsQueryDto } from '../dto/get-my-payments-query.dto';
 import { SearchTransactionsQueryDto } from '../dto/search-transactions-query.dto';
 
@@ -40,14 +43,6 @@ export class PaymentsService {
     private readonly dailyService: DailyService,
   ) {}
 
-  /**
-   * Learner-initiated: creates (or reuses, on a retried click) the
-   * PaymentIntent for hiring a tutor. Ownership/status checks that used to
-   * gate ProposalsService.accept() live here now -- by the time the
-   * payment_intent.succeeded webhook fires and actually accepts the
-   * proposal, there's no learnerId in scope to re-check against, so this is
-   * the one place those checks can happen.
-   */
   async createPaymentIntentForProposal(
     learnerId: string,
     proposalId: string,
@@ -79,11 +74,6 @@ export class PaymentsService {
         'This proposal already has a completed or settled payment',
       );
     }
-
-    // idempotencyKey `payment-intent-${proposalId}` means a retried click
-    // (or a retry after an earlier failed/abandoned confirmation) returns
-    // the SAME PaymentIntent -- no second Payment row is ever needed, the
-    // @unique constraint on proposalId is safe by construction.
     const paymentIntent = await this.stripe.createPaymentIntent(
       proposalId,
       toCents(proposal.totalPrice),
@@ -103,11 +93,6 @@ export class PaymentsService {
         },
       });
     } else if (payment.stripePaymentIntentId !== paymentIntent.id) {
-      // Stripe idempotency keys only guarantee dedup for ~24h. A retry
-      // after that window returns a genuinely new PaymentIntent under the
-      // same deterministic key -- keep the Payment row pointed at whichever
-      // PaymentIntent id the frontend is actually about to confirm, so the
-      // webhook can find it later.
       payment = await this.prisma.payment.update({
         where: { id: payment.id },
         data: { stripePaymentIntentId: paymentIntent.id },
@@ -122,15 +107,6 @@ export class PaymentsService {
     };
   }
 
-  /**
-   * Learner-only. Cancels an already-hired engagement: the remaining,
-   * not-yet-completed sessions are cancelled and the un-transferred portion
-   * of what was paid is refunded. LearnRequest/Session carry the
-   * cancellation state -- Proposal.status is deliberately left ACCEPTED as
-   * a historical record of which proposal was hired, mirroring how
-   * Session/Booking already carry their own CANCELLED status independently
-   * elsewhere in this schema.
-   */
   async cancelProposal(
     learnerId: string,
     proposalId: string,
@@ -196,16 +172,6 @@ export class PaymentsService {
       }
     }
   }
-
-  /**
-   * Only the portion that hasn't yet been transferred to the tutor is
-   * refundable -- once a Transfer has moved money to a tutor's connected
-   * account, refunding the original charge does NOT claw it back
-   * automatically, and refunding more than what's still on the platform's
-   * own balance would push it negative. Uses the cumulative-difference
-   * formula against the FULL learner-paid amount (not the tutor-net share)
-   * so the platform's fee for already-consumed sessions is preserved.
-   */
   async cancelAndRefund(proposalId: string, reason?: string): Promise<void> {
     const payment = await this.prisma.payment.findUnique({
       where: { proposalId },
@@ -226,8 +192,6 @@ export class PaymentsService {
       consumedAmount,
     );
 
-    // Cancel any payouts that hadn't been released yet -- they must never
-    // fire later after this refund.
     await this.prisma.payout.updateMany({
       where: {
         paymentId: payment.id,
@@ -237,11 +201,6 @@ export class PaymentsService {
     });
 
     if (refundableAmount.isZero() || refundableAmount.isNegative()) return;
-
-    // Outside any transaction -- see the payments module's Stripe-call
-    // pattern (never call Stripe from inside a Prisma $transaction).
-    // idempotencyKey `refund-${paymentId}` means a retried call after a
-    // crash resolves to the same Stripe refund rather than double-refunding.
     const refund = await this.stripe.createRefund(
       payment.id,
       payment.stripePaymentIntentId,
@@ -268,11 +227,77 @@ export class PaymentsService {
     });
   }
 
-  /**
-   * Learner-scoped. learnerId is denormalized directly on Payment, so this
-   * needs no ownership check beyond the where clause -- a learner can only
-   * ever query their own rows.
-   */
+  async refundSession(sessionId: string, reason?: string): Promise<void> {
+    const session = await this.prisma.session.findUniqueOrThrow({
+      where: { id: sessionId },
+      include: { proposal: { include: { sessions: true, payment: true } } },
+    });
+    const payment = session.proposal.payment;
+
+    if (
+      !payment ||
+      (payment.status !== PaymentStatus.SUCCEEDED &&
+        payment.status !== PaymentStatus.PARTIALLY_REFUNDED)
+    ) {
+      return;
+    }
+
+    const totalSessions = session.proposal.sessions.length;
+    const refundableAmount = sessionPayoutAmount(
+      new Prisma.Decimal(payment.amount),
+      session.sessionNumber,
+      totalSessions,
+    );
+    await this.prisma.payout.updateMany({
+      where: {
+        sessionId,
+        status: {
+          in: [
+            PayoutStatus.PENDING,
+            PayoutStatus.PENDING_ONBOARDING,
+            PayoutStatus.HELD_FOR_REVIEW,
+          ],
+        },
+      },
+      data: { status: PayoutStatus.CANCELLED },
+    });
+
+    if (refundableAmount.isZero() || refundableAmount.isNegative()) return;
+
+    const refund = await this.stripe.createRefund(
+      payment.id,
+      payment.stripePaymentIntentId,
+      toCents(refundableAmount),
+      `session-${sessionId}`,
+    );
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.refund.create({
+        data: {
+          paymentId: payment.id,
+          stripeRefundId: refund.id,
+          amount: refundableAmount.toNumber(),
+          reason,
+        },
+      });
+      const alreadyRefunded = await tx.refund.aggregate({
+        where: { paymentId: payment.id },
+        _sum: { amount: true },
+      });
+      const totalRefunded = new Prisma.Decimal(
+        alreadyRefunded._sum.amount ?? 0,
+      );
+      await tx.payment.update({
+        where: { id: payment.id },
+        data: {
+          status: totalRefunded.greaterThanOrEqualTo(payment.amount)
+            ? PaymentStatus.REFUNDED
+            : PaymentStatus.PARTIALLY_REFUNDED,
+        },
+      });
+    });
+  }
+
   async getMyPayments(learnerId: string, query: GetMyPaymentsQueryDto) {
     const where: Prisma.PaymentWhereInput = { learnerId };
     if (query.status) where.status = query.status;
@@ -313,12 +338,6 @@ export class PaymentsService {
     };
   }
 
-  /**
-   * Admin-only. Unlike getMyPayments, this deliberately surfaces raw Stripe
-   * ids (via payouts/refunds includes and Payment.stripePaymentIntentId
-   * itself) for reconciliation -- learner/tutor-facing endpoints must never
-   * leak these.
-   */
   async searchTransactions(query: SearchTransactionsQueryDto) {
     const where: Prisma.PaymentWhereInput = {};
     if (query.learnerId) where.learnerId = query.learnerId;

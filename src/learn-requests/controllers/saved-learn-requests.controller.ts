@@ -13,11 +13,6 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { SavedLearnRequestsService } from '../services/saved-learn-requests.service';
 
-// GET /learn-requests/saved lives on LearnRequestsController instead of here
-// (see the comment above its `listSaved` method) -- it needs to be
-// registered ahead of that controller's GET /learn-requests/:id, and the
-// safest way to guarantee that is same-controller, declared first, rather
-// than relying on module `controllers` array order.
 @Controller('learn-requests')
 @UseGuards(RolesGuard)
 @Roles(UserRole.TUTOR)

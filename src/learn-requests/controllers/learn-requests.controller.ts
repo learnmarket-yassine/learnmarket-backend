@@ -52,9 +52,6 @@ export class LearnRequestsController {
     return this.learnRequests.findMany(user, query);
   }
 
-  // Must be declared before @Get(':id') below -- Nest/Express match routes
-  // in registration order, so "saved" would otherwise be captured as the
-  // :id param and 404 through findOneDetail instead of hitting this route.
   @Get('saved')
   @Roles(UserRole.TUTOR)
   listSaved(

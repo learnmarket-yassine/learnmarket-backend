@@ -23,10 +23,6 @@ process.on('uncaughtException', (error) => {
 });
 
 async function bootstrap() {
-  // rawBody:true preserves req.rawBody (a Buffer) alongside the normal
-  // JSON-parsed req.body on every route -- needed by the Stripe webhook
-  // handler, which must verify the signature against the exact raw bytes
-  // Stripe sent, not a re-serialized JSON.parse(...) round-trip.
   const app = await NestFactory.create(AppModule, { rawBody: true });
   const configService = app.get(ConfigService);
   app.use(helmet());

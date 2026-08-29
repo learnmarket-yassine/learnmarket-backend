@@ -8,15 +8,16 @@ import { SparksTransactionType, Prisma } from '@prisma/client';
 import Stripe from 'stripe';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StripeService } from '../../payments/services/stripe.service';
+import { PlatformSettingsService } from '../../platform-settings/services/platform-settings.service';
 import { CreateSparksOfferDto } from '../dto/create-sparks-offer.dto';
 import { UpdateSparksOfferDto } from '../dto/update-sparks-offer.dto';
-import { PROPOSAL_SPARKS_COST } from '../constants/sparks.constants';
 
 @Injectable()
 export class SparksService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly stripeService: StripeService,
+    private readonly platformSettings: PlatformSettingsService,
   ) {}
 
   async spendSparksForProposal(
@@ -24,16 +25,17 @@ export class SparksService {
     tutorId: string,
     proposalId: string,
   ): Promise<void> {
+    const { proposalSparksCost } = await this.platformSettings.getSettings();
     const result = await tx.tutorProfile.updateMany({
       where: {
         userId: tutorId,
-        sparksBalance: { gte: PROPOSAL_SPARKS_COST },
+        sparksBalance: { gte: proposalSparksCost },
       },
-      data: { sparksBalance: { decrement: PROPOSAL_SPARKS_COST } },
+      data: { sparksBalance: { decrement: proposalSparksCost } },
     });
     if (result.count === 0) {
       throw new ConflictException(
-        `You need at least ${PROPOSAL_SPARKS_COST} Sparks to send a proposal. Purchase more from your profile.`,
+        `You need at least ${proposalSparksCost} Sparks to send a proposal. Purchase more from your profile.`,
       );
     }
     const updated = await tx.tutorProfile.findUniqueOrThrow({
@@ -43,7 +45,7 @@ export class SparksService {
       data: {
         tutorId,
         type: SparksTransactionType.PROPOSAL_SPEND,
-        amount: -PROPOSAL_SPARKS_COST,
+        amount: -proposalSparksCost,
         balanceAfter: updated.sparksBalance,
         proposalId,
       },
@@ -57,7 +59,7 @@ export class SparksService {
     const spendTx = await tx.sparksTransaction.findFirst({
       where: { proposalId, type: SparksTransactionType.PROPOSAL_SPEND },
     });
-    if (!spendTx) return; // nothing was ever spent (e.g. predates this module)
+    if (!spendTx) return;
 
     const refundAmount = Math.abs(spendTx.amount);
     const updated = await tx.tutorProfile.update({

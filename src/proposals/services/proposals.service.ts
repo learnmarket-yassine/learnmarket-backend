@@ -18,11 +18,16 @@ import {
   UserRole,
 } from '@prisma/client';
 import { AuthUser } from '../../common/decorators/current-user.decorator';
-import { applyServiceFee, getFeeBreakdown } from '../../common/utils/fee.util';
+import {
+  applyServiceFee,
+  FeeBreakdown,
+  getFeeBreakdown,
+} from '../../common/utils/fee.util';
 import { MessagingService } from '../../messaging/services/messaging.service';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SparksService } from '../../sparks/services/sparks.service';
+import { PlatformSettingsService } from '../../platform-settings/services/platform-settings.service';
 import { CreateProposalDto } from '../dto/create-proposal.dto';
 import {
   GetMyProposalsQueryDto,
@@ -54,12 +59,17 @@ export class ProposalsService {
     private readonly messaging: MessagingService,
     private readonly sparksService: SparksService,
     private readonly notifications: NotificationsService,
+    private readonly platformSettings: PlatformSettingsService,
   ) {}
 
-  private withFeeBreakdown<T extends { totalPrice: Prisma.Decimal }>(
+  private async withFeeBreakdown<T extends { totalPrice: Prisma.Decimal }>(
     proposal: T,
-  ): T & ReturnType<typeof getFeeBreakdown> {
-    return { ...proposal, ...getFeeBreakdown(Number(proposal.totalPrice)) };
+  ): Promise<T & FeeBreakdown> {
+    const { serviceFeePercent } = await this.platformSettings.getSettings();
+    return {
+      ...proposal,
+      ...getFeeBreakdown(Number(proposal.totalPrice), serviceFeePercent),
+    };
   }
 
   async create(
@@ -117,6 +127,7 @@ export class ProposalsService {
       dto.sessionPlans.length === 1
         ? PayoutMethod.ON_COMPLETION
         : (dto.payoutMethod ?? PayoutMethod.ON_COMPLETION);
+    const { serviceFeePercent } = await this.platformSettings.getSettings();
 
     const created = await this.prisma.$transaction(async (tx) => {
       const proposal = await tx.proposal.create({
@@ -124,7 +135,7 @@ export class ProposalsService {
           learnRequestId,
           tutorId,
           sessionDurationMinutes: dto.sessionDurationMinutes,
-          totalPrice: applyServiceFee(dto.totalPrice),
+          totalPrice: applyServiceFee(dto.totalPrice, serviceFeePercent),
           payoutMethod,
           message: dto.message,
         },
@@ -149,7 +160,14 @@ export class ProposalsService {
         where: { id: proposal.id },
         include: PROPOSAL_INCLUDE,
       });
-      return this.withFeeBreakdown(created);
+      // Reuses the serviceFeePercent already fetched above instead of
+      // calling withFeeBreakdown (which would fetch it again) -- avoids an
+      // extra query on an unrelated connection while this transaction's
+      // connection is still checked out and idle-in-transaction.
+      return {
+        ...created,
+        ...getFeeBreakdown(Number(created.totalPrice), serviceFeePercent),
+      };
     });
 
     // Fired after the transaction commits -- a notification for a proposal
@@ -189,7 +207,7 @@ export class ProposalsService {
     });
     if (!proposal) throw new NotFoundException('Proposal not found');
     this.assertViewable(viewer, proposal);
-    return this.withFeeBreakdown(proposal);
+    return await this.withFeeBreakdown(proposal);
   }
 
   async findAllForViewer(viewer: AuthUser) {
@@ -205,7 +223,11 @@ export class ProposalsService {
             include: PROPOSAL_INCLUDE,
             orderBy: { createdAt: 'desc' },
           });
-    return proposals.map((proposal) => this.withFeeBreakdown(proposal));
+    const { serviceFeePercent } = await this.platformSettings.getSettings();
+    return proposals.map((proposal) => ({
+      ...proposal,
+      ...getFeeBreakdown(Number(proposal.totalPrice), serviceFeePercent),
+    }));
   }
 
   async findMyProposals(tutorId: string, query: GetMyProposalsQueryDto) {
@@ -238,8 +260,12 @@ export class ProposalsService {
       this.prisma.proposal.count({ where }),
     ]);
 
+    const { serviceFeePercent } = await this.platformSettings.getSettings();
     return {
-      paginatedResult: items.map((item) => this.withFeeBreakdown(item)),
+      paginatedResult: items.map((item) => ({
+        ...item,
+        ...getFeeBreakdown(Number(item.totalPrice), serviceFeePercent),
+      })),
       totalCount,
     };
   }
@@ -251,13 +277,17 @@ export class ProposalsService {
     }
 
     const { sessionPlans } = dto;
+    const { serviceFeePercent } = await this.platformSettings.getSettings();
     const scalarData: Prisma.ProposalUpdateInput = {};
     if (dto.message !== undefined) scalarData.message = dto.message;
     if (dto.sessionDurationMinutes !== undefined) {
       scalarData.sessionDurationMinutes = dto.sessionDurationMinutes;
     }
     if (dto.totalPrice !== undefined) {
-      scalarData.totalPrice = applyServiceFee(dto.totalPrice);
+      scalarData.totalPrice = applyServiceFee(
+        dto.totalPrice,
+        serviceFeePercent,
+      );
     }
     if (dto.payoutMethod !== undefined) {
       scalarData.payoutMethod = dto.payoutMethod;
@@ -269,7 +299,10 @@ export class ProposalsService {
         data: scalarData,
         include: PROPOSAL_INCLUDE,
       });
-      return this.withFeeBreakdown(updated);
+      return {
+        ...updated,
+        ...getFeeBreakdown(Number(updated.totalPrice), serviceFeePercent),
+      };
     }
 
     const learnRequest = await this.prisma.learnRequest.findUniqueOrThrow({
@@ -306,7 +339,10 @@ export class ProposalsService {
         where: { id },
         include: PROPOSAL_INCLUDE,
       });
-      return this.withFeeBreakdown(updated);
+      return {
+        ...updated,
+        ...getFeeBreakdown(Number(updated.totalPrice), serviceFeePercent),
+      };
     });
   }
 
@@ -324,6 +360,7 @@ export class ProposalsService {
       include: { learnRequest: true },
     });
     if (!proposal) throw new NotFoundException('Proposal not found');
+    const { serviceFeePercent } = await this.platformSettings.getSettings();
 
     return this.prisma.$transaction(async (tx) => {
       const withdrawn = await tx.proposal.update({
@@ -336,7 +373,10 @@ export class ProposalsService {
         proposal.tutorId,
         proposal.learnRequest.learnerId,
       );
-      return this.withFeeBreakdown(withdrawn);
+      return {
+        ...withdrawn,
+        ...getFeeBreakdown(Number(withdrawn.totalPrice), serviceFeePercent),
+      };
     });
   }
   async runAcceptTransaction(
@@ -423,7 +463,7 @@ export class ProposalsService {
   ): void {
     const isTutor = proposal.tutorId === viewer.id;
     const isLearner = proposal.learnRequest.learnerId === viewer.id;
-    if (!isTutor && !isLearner) {
+    if (!isTutor && !isLearner && viewer.role !== 'ADMIN') {
       throw new NotFoundException('Proposal not found');
     }
   }

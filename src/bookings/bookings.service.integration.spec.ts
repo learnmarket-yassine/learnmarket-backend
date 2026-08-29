@@ -4,6 +4,7 @@ import { HoldsService } from '../holds/services/holds.service';
 import { SessionsService } from '../sessions/services/sessions.service';
 import { DailyService, DailyRoom } from '../sessions/services/daily.service';
 import { PayoutsService } from '../payments/services/payouts.service';
+import { PaymentsService } from '../payments/services/payments.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { UploadService } from '../storage/upload.service';
 import { BookingsService } from './services/bookings.service';
@@ -20,8 +21,8 @@ describe('BookingsService (integration, real DB)', () => {
   let sessionAId: string;
 
   const testRoom: DailyRoom = {
-    name: 'test-room',
-    url: 'https://learnmarket.daily.co/test-room',
+    name: 'test-room-bookings-service',
+    url: 'https://learnmarket.daily.co/test-room-bookings-service',
   };
 
   beforeAll(async () => {
@@ -43,6 +44,7 @@ describe('BookingsService (integration, real DB)', () => {
         },
         { provide: UploadService, useValue: {} },
         { provide: PayoutsService, useValue: {} },
+        { provide: PaymentsService, useValue: {} },
       ],
     }).compile();
 

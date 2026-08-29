@@ -1,9 +1,14 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { LearnRequestStatus, LearnRequestType } from '@prisma/client';
+import {
+  LearnRequestStatus,
+  LearnRequestType,
+  TutorVerificationStatus,
+} from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MessagingService } from '../../messaging/services/messaging.service';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { SparksService } from '../../sparks/services/sparks.service';
+import { PlatformSettingsService } from '../../platform-settings/services/platform-settings.service';
 import { ProposalsService } from './proposals.service';
 import { CreateProposalDto } from '../dto/create-proposal.dto';
 
@@ -22,8 +27,15 @@ describe('ProposalsService fee breakdown (integration, real DB)', () => {
       providers: [
         PrismaService,
         ProposalsService,
-        { provide: MessagingService, useValue: { recomputeConversationActiveState: jest.fn() } },
-        { provide: SparksService, useValue: { spendSparksForProposal: jest.fn() } },
+        PlatformSettingsService,
+        {
+          provide: MessagingService,
+          useValue: { recomputeConversationActiveState: jest.fn() },
+        },
+        {
+          provide: SparksService,
+          useValue: { spendSparksForProposal: jest.fn() },
+        },
         { provide: NotificationsService, useValue: { create: jest.fn() } },
       ],
     }).compile();
@@ -67,6 +79,13 @@ describe('ProposalsService fee breakdown (integration, real DB)', () => {
     learnerId = learner.id;
     categoryId = category.id;
 
+    await prisma.tutorProfile.create({
+      data: {
+        userId: tutorId,
+        verificationStatus: TutorVerificationStatus.APPROVED,
+      },
+    });
+
     const learnRequest = await prisma.learnRequest.create({
       data: {
         learnerId,
@@ -82,7 +101,9 @@ describe('ProposalsService fee breakdown (integration, real DB)', () => {
   afterEach(async () => {
     await prisma.proposal.deleteMany({ where: { learnRequestId } });
     await prisma.learnRequest.deleteMany({ where: { id: learnRequestId } });
-    await prisma.user.deleteMany({ where: { id: { in: [tutorId, learnerId] } } });
+    await prisma.user.deleteMany({
+      where: { id: { in: [tutorId, learnerId] } },
+    });
     await prisma.category.deleteMany({ where: { id: categoryId } });
   });
 

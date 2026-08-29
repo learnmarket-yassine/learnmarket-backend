@@ -14,6 +14,7 @@ import {
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
 import { buildScopedWhere } from '../../common/filtering/scoped-where.util';
 import { getFeeBreakdown } from '../../common/utils/fee.util';
+import { PlatformSettingsService } from '../../platform-settings/services/platform-settings.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CategoriesService } from '../../categories/categories.service';
 import { SkillsService } from '../../skills/skills.service';
@@ -120,6 +121,7 @@ export class LearnRequestsService {
     private readonly skills: SkillsService,
     private readonly validation: LearnRequestValidationService,
     private readonly sparksService: SparksService,
+    private readonly platformSettings: PlatformSettingsService,
   ) {}
 
   createDraft(learnerId: string, dto: CreateLearnRequestDraftDto) {
@@ -225,11 +227,12 @@ export class LearnRequestsService {
     if (!isOwner && !isTutorViewable && !isAdmin) {
       throw new NotFoundException('Learn request not found');
     }
+    const { serviceFeePercent } = await this.platformSettings.getSettings();
     return {
       ...learnRequest,
       proposals: learnRequest.proposals.map((proposal) => ({
         ...proposal,
-        ...getFeeBreakdown(Number(proposal.totalPrice)),
+        ...getFeeBreakdown(Number(proposal.totalPrice), serviceFeePercent),
       })),
     };
   }

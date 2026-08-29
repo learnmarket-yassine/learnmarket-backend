@@ -1,12 +1,20 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PayoutStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PlatformSettingsService } from '../../platform-settings/services/platform-settings.service';
 import { StripeService } from './stripe.service';
 import { PayoutsService } from './payouts.service';
 
 describe('PayoutsService', () => {
   let service: PayoutsService;
   let stripe: { createTransfer: jest.Mock };
+  // Matches the 10% platform default (PlatformSettings.serviceFeePercent)
+  // the fixtures below assume -- e.g. totalPrice 110 -> tutorTotal 100.
+  const platformSettings = {
+    getSettings: jest
+      .fn()
+      .mockResolvedValue({ proposalSparksCost: 4, serviceFeePercent: 10 }),
+  };
   let tx: {
     payout: { create: jest.Mock; aggregate: jest.Mock };
     session: { count: jest.Mock };
@@ -29,6 +37,7 @@ describe('PayoutsService', () => {
         PayoutsService,
         { provide: PrismaService, useValue: {} },
         { provide: StripeService, useValue: stripe },
+        { provide: PlatformSettingsService, useValue: platformSettings },
       ],
     }).compile();
 
@@ -189,6 +198,7 @@ describe('PayoutsService', () => {
           PayoutsService,
           { provide: PrismaService, useValue: prisma },
           { provide: StripeService, useValue: stripe },
+          { provide: PlatformSettingsService, useValue: platformSettings },
         ],
       }).compile();
       const svc = moduleRef.get(PayoutsService);

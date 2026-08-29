@@ -29,21 +29,15 @@ export class SessionReviewAutoResolveCron {
 
   private async run(): Promise<void> {
     const cutoff = new Date(Date.now() - RESPONSE_TIMEOUT_HOURS * 3600_000);
-
-    // Disputed sessions are excluded entirely -- they never auto-complete
-    // via this path regardless of how stale either branch is.
     const stale = await this.prisma.session.findMany({
       where: {
         status: SessionStatus.PENDING_REVIEW,
-        disputedAt: null,
         booking: { endTime: { lt: cutoff } },
         OR: [{ summarySubmittedAt: null }, { learnerConfirmedAt: null }],
       },
     });
 
     for (const session of stale) {
-      // Each branch is backfilled independently -- a session missing only
-      // one branch only gets that one touched.
       if (!session.summarySubmittedAt) {
         await this.prisma.session.update({
           where: { id: session.id },
@@ -63,7 +57,9 @@ export class SessionReviewAutoResolveCron {
     }
 
     if (stale.length > 0) {
-      this.logger.debug(`Auto-resolved ${stale.length} stale session review(s)`);
+      this.logger.debug(
+        `Auto-resolved ${stale.length} stale session review(s)`,
+      );
     }
   }
 }

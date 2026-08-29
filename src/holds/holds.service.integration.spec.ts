@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SessionsService } from '../sessions/services/sessions.service';
 import { DailyService, DailyRoom } from '../sessions/services/daily.service';
 import { PayoutsService } from '../payments/services/payouts.service';
+import { PaymentsService } from '../payments/services/payments.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { UploadService } from '../storage/upload.service';
 import { HoldsService } from './services/holds.service';
@@ -21,8 +22,8 @@ describe('HoldsService (integration, real DB)', () => {
   let proposalId: string;
 
   const testRoom: DailyRoom = {
-    name: 'test-room',
-    url: 'https://learnmarket.daily.co/test-room',
+    name: 'test-room-holds-service',
+    url: 'https://learnmarket.daily.co/test-room-holds-service',
   };
 
   beforeAll(async () => {
@@ -43,6 +44,7 @@ describe('HoldsService (integration, real DB)', () => {
         },
         { provide: UploadService, useValue: {} },
         { provide: PayoutsService, useValue: {} },
+        { provide: PaymentsService, useValue: {} },
       ],
     }).compile();
 

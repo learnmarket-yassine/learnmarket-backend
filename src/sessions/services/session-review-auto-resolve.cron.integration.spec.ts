@@ -3,6 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { DailyService } from './daily.service';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { PayoutsService } from '../../payments/services/payouts.service';
+import { PaymentsService } from '../../payments/services/payments.service';
 import { UploadService } from '../../storage/upload.service';
 import { SessionsService } from './sessions.service';
 import { SessionReviewAutoResolveCron } from './session-review-auto-resolve.cron';
@@ -34,6 +35,10 @@ describe('SessionReviewAutoResolveCron (integration, real DB)', () => {
             releasePayout: jest.fn().mockResolvedValue(undefined),
           },
         },
+        {
+          provide: PaymentsService,
+          useValue: { refundSession: jest.fn().mockResolvedValue(undefined) },
+        },
       ],
     }).compile();
 
@@ -50,7 +55,7 @@ describe('SessionReviewAutoResolveCron (integration, real DB)', () => {
     bookingEndTime: Date;
     summarySubmittedAt: Date | null;
     learnerConfirmedAt: Date | null;
-    disputedAt?: Date | null;
+    disputed?: boolean;
   }) {
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const [tutor, learner] = await Promise.all([
@@ -103,14 +108,18 @@ describe('SessionReviewAutoResolveCron (integration, real DB)', () => {
         proposalId: proposal.id,
         sessionNumber: 1,
         title: 'Session 1',
-        status: 'PENDING_REVIEW',
+        status: params.disputed ? 'DISPUTED' : 'PENDING_REVIEW',
         tutorJoinedAt: new Date(),
         summarySubmittedAt: params.summarySubmittedAt,
         summary: params.summarySubmittedAt ? 'Real summary' : null,
         learnerConfirmedAt: params.learnerConfirmedAt,
-        disputedAt: params.disputedAt ?? null,
       },
     });
+    if (params.disputed) {
+      await prisma.sessionDispute.create({
+        data: { sessionId: session.id, reason: 'Tutor left early.' },
+      });
+    }
     await prisma.booking.create({
       data: {
         tutorId,
@@ -179,14 +188,14 @@ describe('SessionReviewAutoResolveCron (integration, real DB)', () => {
       bookingEndTime: new Date(Date.now() - 49 * HOUR_MS),
       summarySubmittedAt: new Date(),
       learnerConfirmedAt: null,
-      disputedAt: new Date(),
+      disputed: true,
     });
 
     await cron.resolveStaleReviews();
 
     const session = await prisma.session.findUniqueOrThrow({ where: { id: sessionId } });
     expect(session.learnerConfirmedAt).toBeNull();
-    expect(session.status).toBe('PENDING_REVIEW');
+    expect(session.status).toBe('DISPUTED');
   });
 
   it('backfills each branch independently -- both stale resolves independently in one pass', async () => {

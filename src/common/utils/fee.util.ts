@@ -1,24 +1,35 @@
 import { Prisma } from '@prisma/client';
 
-export const SERVICE_FEE_PERCENT = 0.1;
-
 export interface FeeBreakdown {
   serviceFee: number;
   tutorTotal: number;
 }
 
-const FEE_MULTIPLIER = new Prisma.Decimal(1).plus(SERVICE_FEE_PERCENT);
+function feeMultiplier(
+  serviceFeePercent: Prisma.Decimal | number,
+): Prisma.Decimal {
+  return new Prisma.Decimal(1).plus(
+    new Prisma.Decimal(serviceFeePercent).dividedBy(100),
+  );
+}
 
-export function applyServiceFee(tutorPrice: number): number {
+export function applyServiceFee(
+  tutorPrice: number,
+  serviceFeePercent: Prisma.Decimal | number,
+): number {
   return new Prisma.Decimal(tutorPrice)
-    .times(FEE_MULTIPLIER)
+    .times(feeMultiplier(serviceFeePercent))
     .toDecimalPlaces(2)
     .toNumber();
 }
 
-export function getFeeBreakdown(totalPrice: number): FeeBreakdown {
+export function getFeeBreakdown(
+  totalPrice: number,
+  serviceFeePercent: Prisma.Decimal | number,
+): FeeBreakdown {
   const total = new Prisma.Decimal(totalPrice);
-  const tutorTotal = total.dividedBy(FEE_MULTIPLIER).toDecimalPlaces(2);
+  const multiplier = feeMultiplier(serviceFeePercent);
+  const tutorTotal = total.dividedBy(multiplier).toDecimalPlaces(2);
   const serviceFee = total.minus(tutorTotal).toDecimalPlaces(2);
   return {
     tutorTotal: tutorTotal.toNumber(),
