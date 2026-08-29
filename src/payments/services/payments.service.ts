@@ -233,7 +233,14 @@ export class PaymentsService {
       include: { proposal: { include: { sessions: true, payment: true } } },
     });
     const payment = session.proposal.payment;
-    if (!payment || payment.status !== PaymentStatus.SUCCEEDED) return;
+
+    if (
+      !payment ||
+      (payment.status !== PaymentStatus.SUCCEEDED &&
+        payment.status !== PaymentStatus.PARTIALLY_REFUNDED)
+    ) {
+      return;
+    }
 
     const totalSessions = session.proposal.sessions.length;
     const refundableAmount = sessionPayoutAmount(

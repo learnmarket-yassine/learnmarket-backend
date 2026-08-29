@@ -571,8 +571,13 @@ export class SessionsService {
     const { proposal } = completedSession;
 
     await this.advanceCourse(tx, completedSession, proposal);
-
-    if (proposal.payment?.status !== PaymentStatus.SUCCEEDED) return null;
+    if (
+      !proposal.payment ||
+      (proposal.payment.status !== PaymentStatus.SUCCEEDED &&
+        proposal.payment.status !== PaymentStatus.PARTIALLY_REFUNDED)
+    ) {
+      return null;
+    }
 
     return this.payoutsService.recordPayoutForCompletedSession(
       tx,

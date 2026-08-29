@@ -34,9 +34,11 @@ export class BookingsCompletionCron {
     });
 
     for (const booking of dueBookings) {
-      // Already gated on a previous tick -- nothing left to do here, its
-      // completion now waits on the confirmation gate resolving instead.
-      if (booking.session?.status === SessionStatus.PENDING_REVIEW) continue;
+      if (
+        booking.session?.status === SessionStatus.PENDING_REVIEW ||
+        booking.session?.status === SessionStatus.DISPUTED
+      )
+        continue;
 
       const payoutTrigger = await this.prisma.$transaction(async (tx) => {
         if (!booking.session) {
