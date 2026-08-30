@@ -10,6 +10,7 @@ import { Prisma, User, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UploadService } from '../storage/upload.service';
 import { UploadPurpose } from '../storage/upload-purpose.enum';
+import { GetUsersQueryDto } from './dto/get-users-dto';
 
 const TUTOR_PROFILE_INCLUDE = {
   skills: { include: { skill: true } },
@@ -152,6 +153,71 @@ export class UsersService {
 
   findAll(): Promise<User[]> {
     return this.prisma.user.findMany();
+  }
+
+  async getUsers(query: GetUsersQueryDto) {
+    const where: Prisma.UserWhereInput = {
+      role: {
+        not: UserRole.ADMIN,
+      },
+    };
+
+    if (query.username?.trim()) {
+      where.OR = [
+        {
+          firstname: {
+            contains: query.username.trim(),
+            mode: 'insensitive',
+          },
+        },
+        {
+          lastname: {
+            contains: query.username.trim(),
+            mode: 'insensitive',
+          },
+        },
+      ];
+    }
+
+    if (query.role) {
+      where.role = query.role;
+    }
+
+    if (query.country) {
+      where.country = query.country;
+    }
+
+    const [items, totalCount] = await this.prisma.$transaction([
+      this.prisma.user.findMany({
+        where,
+        orderBy: {
+          createdAt: query.sortDir ?? 'desc',
+        },
+        skip: query.page * query.take,
+        take: query.take,
+
+        select: {
+          id: true,
+          firstname: true,
+          lastname: true,
+          email: true,
+          avatar: true,
+          country: true,
+          createdAt: true,
+          isBlocked: true,
+          role: true,
+        },
+      }),
+
+      this.prisma.user.count({
+        where,
+      }),
+    ]);
+
+    return {
+      paginatedResult: items,
+      totalCount,
+    };
   }
 
   async getProfile(id: string) {

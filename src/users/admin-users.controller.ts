@@ -1,9 +1,10 @@
-import { Controller, Param, Post, UseGuards } from '@nestjs/common';
+import { Controller, Param, Post, Query, UseGuards, Get } from '@nestjs/common';
 import { NotificationType, UserRole } from '@prisma/client';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { NotificationsService } from '../notifications/notifications.service';
 import { UsersService } from './users.service';
+import { GetUsersQueryDto } from './dto/get-users-dto';
 
 @Controller('admin/users')
 @UseGuards(RolesGuard)
@@ -13,6 +14,10 @@ export class AdminUsersController {
     private readonly usersService: UsersService,
     private readonly notifications: NotificationsService,
   ) {}
+  @Get('/')
+  getUsers(@Query() query: GetUsersQueryDto) {
+    return this.usersService.getUsers(query);
+  }
 
   @Post(':id/block')
   async block(@Param('id') id: string) {
