@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UpdateMyProfileDto } from './dto/update-my-profile.dto';
@@ -28,6 +32,7 @@ const PROFILE_SELECT = {
   headline: true,
   bio: true,
   role: true,
+  isBlocked: true,
   country: true,
   phone: true,
   phoneCountryCode: true,
@@ -293,5 +298,37 @@ export class UsersService {
 
   remove(id: string): Promise<User> {
     return this.prisma.user.delete({ where: { id } });
+  }
+
+  async blockUser(userId: string) {
+    const result = await this.prisma.user.updateMany({
+      where: { id: userId, isBlocked: false },
+      data: { isBlocked: true },
+    });
+    if (result.count === 0) {
+      const exists = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true },
+      });
+      if (!exists) throw new NotFoundException('User not found');
+      throw new ConflictException('This user is already blocked');
+    }
+    return this.findByIdSafe(userId);
+  }
+
+  async unblockUser(userId: string) {
+    const result = await this.prisma.user.updateMany({
+      where: { id: userId, isBlocked: true },
+      data: { isBlocked: false },
+    });
+    if (result.count === 0) {
+      const exists = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true },
+      });
+      if (!exists) throw new NotFoundException('User not found');
+      throw new ConflictException('This user is not blocked');
+    }
+    return this.findByIdSafe(userId);
   }
 }

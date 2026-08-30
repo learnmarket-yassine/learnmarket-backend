@@ -77,10 +77,19 @@ export class ProposalsService {
     learnRequestId: string,
     dto: CreateProposalDto,
   ) {
-    const tutorProfile = await this.prisma.tutorProfile.findUnique({
-      where: { userId: tutorId },
+    const tutor = await this.prisma.user.findUnique({
+      where: { id: tutorId },
+      select: { isBlocked: true, tutorProfile: true },
     });
-    if (tutorProfile?.verificationStatus !== TutorVerificationStatus.APPROVED) {
+    if (tutor?.isBlocked) {
+      throw new ForbiddenException(
+        'Your account has been blocked. Contact support for assistance.',
+      );
+    }
+    if (
+      tutor?.tutorProfile?.verificationStatus !==
+      TutorVerificationStatus.APPROVED
+    ) {
       throw new ForbiddenException(
         'Complete verification before creating proposals. Visit your profile to submit for review.',
       );

@@ -46,4 +46,10 @@ export class AdminCategoriesController {
   remove(@Param('id') id: string) {
     return this.categories.softDelete(id);
   }
+
+  @Delete(':id/hard')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  removeHard(@Param('id') id: string) {
+    return this.categories.remove(id);
+  }
 }

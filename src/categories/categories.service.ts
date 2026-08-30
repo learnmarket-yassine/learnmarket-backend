@@ -20,7 +20,7 @@ export class CategoriesService {
 
   async create(dto: CreateCategoryDto) {
     const name = dto.name.trim();
-    const slug = slugify(name);
+    const slug = slugify(dto.slug?.trim() || name);
     await this.assertNameAvailable(name);
     await this.assertSlugAvailable(slug);
     return this.prisma.category.create({ data: { name, slug } });
@@ -35,6 +35,7 @@ export class CategoriesService {
           : undefined,
       },
       orderBy: { name: 'asc' },
+      include: { _count: { select: { specialties: true } } },
     });
   }
 
@@ -42,7 +43,7 @@ export class CategoriesService {
     query: ListCategoriesQueryDto,
   ): Promise<PaginatedResult<Category>> {
     const page = query.page ?? DEFAULT_PAGE;
-    const limit = query.limit ?? DEFAULT_LIMIT;
+    const limit = query.take ?? DEFAULT_LIMIT;
     const where = {
       isActive: query.includeInactive ? undefined : true,
       name: query.search
@@ -54,8 +55,9 @@ export class CategoriesService {
       this.prisma.category.findMany({
         where,
         orderBy: { name: 'asc' },
-        skip: (page - 1) * limit,
+        skip: page * limit,
         take: limit,
+        include: { _count: { select: { specialties: true } } },
       }),
       this.prisma.category.count({ where }),
     ]);
@@ -64,16 +66,23 @@ export class CategoriesService {
   }
 
   async update(id: string, dto: UpdateCategoryDto) {
-    await this.findOneOrThrow(id);
+    const current = await this.findOneOrThrow(id);
     const name = dto.name?.trim();
     if (name) await this.assertNameAvailable(name, id);
+
+    let slug: string | undefined;
+    if (dto.slug !== undefined) {
+      slug = slugify(dto.slug.trim());
+    } else if (name) {
+      slug = slugify(name);
+    }
+    if (slug && slug !== current.slug) {
+      await this.assertSlugAvailable(slug, id);
+    }
+
     return this.prisma.category.update({
       where: { id },
-      data: {
-        name,
-        slug: name ? slugify(name) : undefined,
-        isActive: dto.isActive,
-      },
+      data: { name, slug, isActive: dto.isActive },
     });
   }
 
@@ -83,6 +92,11 @@ export class CategoriesService {
       where: { id },
       data: { isActive: false },
     });
+  }
+
+  async remove(id: string) {
+    await this.findOneOrThrow(id);
+    await this.prisma.category.delete({ where: { id } });
   }
 
   async assertActive(id: string) {
@@ -107,13 +121,17 @@ export class CategoriesService {
         id: excludeId ? { not: excludeId } : undefined,
       },
     });
-    if (existing) throw new ConflictException('Category already exists');
+    if (existing) {
+      throw new ConflictException('A category with this name already exists');
+    }
   }
 
-  private async assertSlugAvailable(slug: string) {
-    const existing = await this.prisma.category.findUnique({
-      where: { slug },
+  private async assertSlugAvailable(slug: string, excludeId?: string) {
+    const existing = await this.prisma.category.findFirst({
+      where: { slug, id: excludeId ? { not: excludeId } : undefined },
     });
-    if (existing) throw new ConflictException('Category already exists');
+    if (existing) {
+      throw new ConflictException('A category with this slug already exists');
+    }
   }
 }

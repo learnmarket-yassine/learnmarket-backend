@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -124,7 +125,17 @@ export class LearnRequestsService {
     private readonly platformSettings: PlatformSettingsService,
   ) {}
 
-  createDraft(learnerId: string, dto: CreateLearnRequestDraftDto) {
+  async createDraft(learnerId: string, dto: CreateLearnRequestDraftDto) {
+    const learner = await this.prisma.user.findUnique({
+      where: { id: learnerId },
+      select: { isBlocked: true },
+    });
+    if (learner?.isBlocked) {
+      throw new ForbiddenException(
+        'Your account has been blocked. Contact support for assistance.',
+      );
+    }
+
     return this.prisma.learnRequest.create({
       data: {
         learnerId,
