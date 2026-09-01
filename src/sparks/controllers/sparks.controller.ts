@@ -28,7 +28,12 @@ export class SparksController {
     @CurrentUser('id') tutorId: string,
     @Query() query: GetSparksHistoryQueryDto,
   ) {
-    return this.sparks.getHistory(tutorId, query.page, query.take, query.sortDir);
+    return this.sparks.getHistory(
+      tutorId,
+      query.page,
+      query.take,
+      query.sortDir,
+    );
   }
 
   @Post('purchase-intent')
