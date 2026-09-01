@@ -196,11 +196,32 @@ export class TutorVerificationService {
       verificationStatus: TutorVerificationStatus.PENDING,
     };
 
+    if (query.username?.trim()) {
+      where.OR = [
+        {
+          user: {
+            firstname: {
+              contains: query.username.trim(),
+              mode: 'insensitive',
+            },
+          },
+        },
+        {
+          user: {
+            lastname: {
+              contains: query.username.trim(),
+              mode: 'insensitive',
+            },
+          },
+        },
+      ];
+    }
+
     const [items, totalCount] = await this.prisma.$transaction([
       this.prisma.tutorProfile.findMany({
         where,
         orderBy: {
-          submittedAt: 'asc',
+          submittedAt: query.sortDir ?? 'desc',
         },
         skip: page * take,
         take,

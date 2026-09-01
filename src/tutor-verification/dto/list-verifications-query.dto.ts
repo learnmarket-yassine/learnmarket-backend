@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, Max, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class ListVerificationsQueryDto {
   @IsOptional()
@@ -14,4 +14,12 @@ export class ListVerificationsQueryDto {
   @Min(1)
   @Max(50)
   take = 10;
+
+  @IsOptional()
+  @IsIn(['asc', 'desc'])
+  sortDir?: 'asc' | 'desc';
+
+  @IsOptional()
+  @IsString()
+  username?: string;
 }
