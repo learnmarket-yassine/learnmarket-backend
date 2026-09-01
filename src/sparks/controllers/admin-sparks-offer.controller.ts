@@ -5,6 +5,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
@@ -13,6 +14,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { SparksService } from '../services/sparks.service';
 import { CreateSparksOfferDto } from '../dto/create-sparks-offer.dto';
 import { UpdateSparksOfferDto } from '../dto/update-sparks-offer.dto';
+import { GetSparksOffersQueryDto } from '../dto/get-sparks-offers';
 
 @Controller('admin/sparks-offers')
 @UseGuards(RolesGuard)
@@ -26,8 +28,8 @@ export class AdminSparksOfferController {
   }
 
   @Get()
-  listAll() {
-    return this.sparks.listAllOffers();
+  listAll(@Query() query: GetSparksOffersQueryDto) {
+    return this.sparks.listAllOffers(query);
   }
 
   @Patch(':id')

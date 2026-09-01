@@ -11,6 +11,7 @@ import { StripeService } from '../../payments/services/stripe.service';
 import { PlatformSettingsService } from '../../platform-settings/services/platform-settings.service';
 import { CreateSparksOfferDto } from '../dto/create-sparks-offer.dto';
 import { UpdateSparksOfferDto } from '../dto/update-sparks-offer.dto';
+import { GetSparksOffersQueryDto } from '../dto/get-sparks-offers';
 
 @Injectable()
 export class SparksService {
@@ -89,10 +90,36 @@ export class SparksService {
     });
   }
 
-  async listAllOffers() {
-    return this.prisma.sparksOffer.findMany({
-      orderBy: { displayOrder: 'asc' },
-    });
+  async listAllOffers(query: GetSparksOffersQueryDto) {
+    const where: Prisma.SparksOfferWhereInput = {
+      isActive: true,
+    };
+
+    if (query.name?.trim()) {
+      where.name = {
+        contains: query.name.trim(),
+        mode: 'insensitive',
+      };
+    }
+    const [items, totalCount] = await this.prisma.$transaction([
+      this.prisma.sparksOffer.findMany({
+        where,
+        orderBy: {
+          createdAt: query.sortDir ?? 'desc',
+        },
+        skip: query.page * query.take,
+        take: query.take,
+      }),
+
+      this.prisma.sparksOffer.count({
+        where,
+      }),
+    ]);
+
+    return {
+      paginatedResult: items,
+      totalCount,
+    };
   }
 
   async listActiveOffers() {
