@@ -33,7 +33,7 @@ export class AdminSkillsController {
 
   @Get()
   findAll(@Query() query: ListSkillsQueryDto) {
-    return this.skills.findAll(query);
+    return this.skills.findAllPaginated(query);
   }
 
   @Patch(':id')
@@ -45,5 +45,11 @@ export class AdminSkillsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(@Param('id') id: string) {
     return this.skills.softDelete(id);
+  }
+
+  @Delete(':id/hard')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  removeHard(@Param('id') id: string) {
+    return this.skills.remove(id);
   }
 }

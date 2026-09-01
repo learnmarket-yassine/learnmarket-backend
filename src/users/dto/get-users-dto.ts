@@ -1,7 +1,16 @@
+import { UserRole } from '@prisma/client';
 import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import {
+  IsEnum,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+} from 'class-validator';
 
-export class ListVerificationsQueryDto {
+export class GetUsersQueryDto {
   @IsOptional()
   @Type(() => Number)
   @IsInt()
@@ -22,4 +31,12 @@ export class ListVerificationsQueryDto {
   @IsOptional()
   @IsString()
   username?: string;
+
+  @IsOptional()
+  @IsString()
+  country?: string;
+
+  @IsOptional()
+  @IsEnum(UserRole)
+  role?: UserRole;
 }

@@ -47,6 +47,7 @@ enum NotificationType {
   SESSION_REPORTED
   VERIFICATION_UPDATED
   DISPUTE_RESOLVED
+  ACCOUNT_STATUS_UPDATED
 
   @@map("notification_type")
 }
@@ -70,6 +71,7 @@ model User {
   state                        String?
   postalCode                   String?                      @map("postal_code")
   role                         UserRole                     @default(LEARNER)
+  isBlocked                    Boolean                      @default(false) @map("is_blocked")
   isOnlineForMsg               Boolean                      @default(false) @map("is_online_for_msg")
   onboardingStep               Int                          @default(1) @map("onboarding_step")
   createdAt                    DateTime                     @default(now()) @map("created_at")
@@ -104,6 +106,7 @@ model User {
 
   @@index([email])
   @@index([role])
+  @@index([isBlocked])
   @@map("users")
 }
 

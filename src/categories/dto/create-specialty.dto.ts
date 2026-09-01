@@ -1,4 +1,10 @@
-import { IsNotEmpty, IsString, IsUUID, MaxLength } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+} from 'class-validator';
 
 export class CreateSpecialtyDto {
   @IsUUID()
@@ -8,4 +14,9 @@ export class CreateSpecialtyDto {
   @IsNotEmpty()
   @MaxLength(100)
   name!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  slug?: string;
 }

@@ -24,11 +24,10 @@ export class FeedbackService {
 
     const isTutor = proposal.tutorId === authorId;
     const isLearner = proposal.learnRequest.learnerId === authorId;
-    // 404, not 403 -- same discipline as every ownership check in this codebase
+
     if (!isTutor && !isLearner)
       throw new NotFoundException('Proposal not found');
 
-    // Only the learner reviews the tutor -- not the other way around.
     if (isTutor) {
       throw new ForbiddenException(
         'Only the learner can leave feedback for this course',
@@ -76,8 +75,6 @@ export class FeedbackService {
       proposal.learnRequest.learnerId === viewerId;
     if (!isParticipant) throw new NotFoundException('Proposal not found');
 
-    // One-directional now -- at most the learner's feedback about the
-    // tutor, visible to both participants as soon as it's submitted.
     return proposal.feedbacks;
   }
 
@@ -103,6 +100,7 @@ export class FeedbackService {
         proposal: { include: { learnRequest: true } },
       },
       orderBy: { createdAt: 'desc' },
+      take: 5,
     });
 
     return feedbacks.map(

@@ -7,8 +7,15 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateSkillDto } from './dto/create-skill.dto';
 import { UpdateSkillDto } from './dto/update-skill.dto';
 import { ListSkillsQueryDto } from './dto/list-skills-query.dto';
+import { PaginatedResult } from '../common/interfaces/paginated-result.interface';
 
 const SEARCH_RESULT_LIMIT = 20;
+const DEFAULT_PAGE = 1;
+const DEFAULT_LIMIT = 20;
+
+const withUsageCounts = {
+  _count: { select: { categorySkills: true, tutorProfiles: true } },
+} as const;
 
 @Injectable()
 export class SkillsService {
@@ -30,6 +37,32 @@ export class SkillsService {
       },
       orderBy: { name: 'asc' },
     });
+  }
+
+  async findAllPaginated(
+    query: ListSkillsQueryDto,
+  ): Promise<PaginatedResult<unknown>> {
+    const page = query.page ?? DEFAULT_PAGE;
+    const limit = query.limit ?? DEFAULT_LIMIT;
+    const where = {
+      isActive: query.includeInactive ? undefined : true,
+      name: query.search
+        ? { contains: query.search, mode: 'insensitive' as const }
+        : undefined,
+    };
+
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.skill.findMany({
+        where,
+        orderBy: { name: 'asc' },
+        skip: page * limit,
+        take: limit,
+        include: withUsageCounts,
+      }),
+      this.prisma.skill.count({ where }),
+    ]);
+
+    return { data, total, page, hasMore: page * limit < total };
   }
 
   search(search?: string) {
@@ -60,6 +93,11 @@ export class SkillsService {
       where: { id },
       data: { isActive: false },
     });
+  }
+
+  async remove(id: string) {
+    await this.findOneOrThrow(id);
+    await this.prisma.skill.delete({ where: { id } });
   }
 
   async assertActive(id: string) {
@@ -94,6 +132,8 @@ export class SkillsService {
         id: excludeId ? { not: excludeId } : undefined,
       },
     });
-    if (existing) throw new ConflictException('Skill already exists');
+    if (existing) {
+      throw new ConflictException('A skill with this name already exists');
+    }
   }
 }

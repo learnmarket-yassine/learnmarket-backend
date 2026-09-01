@@ -1,7 +1,15 @@
-import { IsBoolean, IsOptional, IsString, MaxLength } from 'class-validator';
-import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
+import {
+  IsBoolean,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
+import { Type } from 'class-transformer';
 
-export class ListCategoriesQueryDto extends PaginationQueryDto {
+export class ListCategoriesQueryDto {
   @IsOptional()
   @IsString()
   @MaxLength(100)
@@ -10,4 +18,17 @@ export class ListCategoriesQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsBoolean()
   includeInactive?: boolean;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  page = 0;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(50)
+  take = 10;
 }

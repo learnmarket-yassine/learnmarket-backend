@@ -33,6 +33,9 @@ export class AdminSpecialtiesController {
 
   @Get()
   findAll(@Query() query: ListSpecialtiesQueryDto) {
+    if (query.categoryId) {
+      return this.specialties.findAllPaginatedAdmin(query.categoryId, query);
+    }
     return this.specialties.findAll(query);
   }
 
@@ -45,5 +48,11 @@ export class AdminSpecialtiesController {
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(@Param('id') id: string) {
     return this.specialties.softDelete(id);
+  }
+
+  @Delete(':id/hard')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  removeHard(@Param('id') id: string) {
+    return this.specialties.remove(id);
   }
 }

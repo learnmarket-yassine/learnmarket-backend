@@ -6,6 +6,7 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { UsersModule } from './users/users.module';
+import { AdminUsersModule } from './users/admin-users.module';
 import { SentryModule } from '@sentry/nestjs/setup';
 import { AppController } from './app.controller';
 import { AuthModule } from './auth/auth.module';
@@ -42,6 +43,7 @@ import { NotificationsModule } from './notifications/notifications.module';
     HealthModule,
     PrismaModule,
     UsersModule,
+    AdminUsersModule,
     AuthModule,
     EmailModule,
     RedisModule,

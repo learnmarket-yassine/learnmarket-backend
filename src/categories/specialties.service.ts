@@ -12,7 +12,7 @@ import { ListSpecialtiesQueryDto } from './dto/list-specialties-query.dto';
 import { PaginatedResult } from '../common/interfaces/paginated-result.interface';
 import { Specialty } from '@prisma/client';
 
-const DEFAULT_PAGE = 1;
+const DEFAULT_PAGE = 0;
 const DEFAULT_LIMIT = 20;
 
 @Injectable()
@@ -25,7 +25,7 @@ export class SpecialtiesService {
   async create(dto: CreateSpecialtyDto) {
     await this.categories.assertActive(dto.categoryId);
     const name = dto.name.trim();
-    const slug = slugify(name);
+    const slug = slugify(dto.slug?.trim() || name);
     await this.assertSlugAvailable(dto.categoryId, slug);
     return this.prisma.specialty.create({
       data: { categoryId: dto.categoryId, name, slug },
@@ -50,9 +50,23 @@ export class SpecialtiesService {
     query: ListSpecialtiesQueryDto,
   ): Promise<PaginatedResult<Specialty>> {
     await this.categories.assertActive(categoryId);
+    return this.paginate(categoryId, query);
+  }
 
+  async findAllPaginatedAdmin(
+    categoryId: string,
+    query: ListSpecialtiesQueryDto,
+  ): Promise<PaginatedResult<Specialty>> {
+    await this.categories.findOneOrThrow(categoryId);
+    return this.paginate(categoryId, query);
+  }
+
+  private async paginate(
+    categoryId: string,
+    query: ListSpecialtiesQueryDto,
+  ): Promise<PaginatedResult<Specialty>> {
     const page = query.page ?? DEFAULT_PAGE;
-    const limit = query.limit ?? DEFAULT_LIMIT;
+    const limit = query.take ?? DEFAULT_LIMIT;
     const where = {
       categoryId,
       isActive: query.includeInactive ? undefined : true,
@@ -65,7 +79,7 @@ export class SpecialtiesService {
       this.prisma.specialty.findMany({
         where,
         orderBy: { name: 'asc' },
-        skip: (page - 1) * limit,
+        skip: page * limit,
         take: limit,
       }),
       this.prisma.specialty.count({ where }),
@@ -80,12 +94,17 @@ export class SpecialtiesService {
     if (dto.categoryId) await this.categories.assertActive(dto.categoryId);
 
     const name = dto.name?.trim();
-    const slug = name ? slugify(name) : undefined;
+    let slug: string | undefined;
+    if (dto.slug !== undefined) {
+      slug = slugify(dto.slug.trim());
+    } else if (name) {
+      slug = slugify(name);
+    }
     if (
       slug &&
       (slug !== specialty.slug || categoryId !== specialty.categoryId)
     ) {
-      await this.assertSlugAvailable(categoryId, slug);
+      await this.assertSlugAvailable(categoryId, slug, id);
     }
 
     return this.prisma.specialty.update({
@@ -100,6 +119,11 @@ export class SpecialtiesService {
       where: { id },
       data: { isActive: false },
     });
+  }
+
+  async remove(id: string) {
+    await this.findOneOrThrow(id);
+    await this.prisma.specialty.delete({ where: { id } });
   }
 
   async assertActive(id: string) {
@@ -138,10 +162,22 @@ export class SpecialtiesService {
     return specialty;
   }
 
-  private async assertSlugAvailable(categoryId: string, slug: string) {
-    const existing = await this.prisma.specialty.findUnique({
-      where: { categoryId_slug: { categoryId, slug } },
+  private async assertSlugAvailable(
+    categoryId: string,
+    slug: string,
+    excludeId?: string,
+  ) {
+    const existing = await this.prisma.specialty.findFirst({
+      where: {
+        categoryId,
+        slug,
+        id: excludeId ? { not: excludeId } : undefined,
+      },
     });
-    if (existing) throw new ConflictException('Specialty already exists');
+    if (existing) {
+      throw new ConflictException(
+        'A specialty with this slug already exists in this category',
+      );
+    }
   }
 }

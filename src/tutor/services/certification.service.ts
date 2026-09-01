@@ -89,11 +89,6 @@ export class CertificationService {
     return this.uploads.getSignedDownloadUrl(file.key);
   }
 
-  // Used by the admin verification review flow, where the caller isn't the
-  // owning tutor -- access is already gated by the admin-only route, so no
-  // ownership check here, just the same signed-URL pattern as the tutor's
-  // own getFileUrl above (never serve certification files as plain public
-  // S3 URLs).
   async getFileUrlForAdmin(certId: string, fileId: string) {
     const file = await this.prisma.certificationFile.findUnique({
       where: { id: fileId },

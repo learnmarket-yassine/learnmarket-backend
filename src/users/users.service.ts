@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UpdateMyProfileDto } from './dto/update-my-profile.dto';
@@ -6,6 +10,7 @@ import { Prisma, User, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UploadService } from '../storage/upload.service';
 import { UploadPurpose } from '../storage/upload-purpose.enum';
+import { GetUsersQueryDto } from './dto/get-users-dto';
 
 const TUTOR_PROFILE_INCLUDE = {
   skills: { include: { skill: true } },
@@ -28,6 +33,7 @@ const PROFILE_SELECT = {
   headline: true,
   bio: true,
   role: true,
+  isBlocked: true,
   country: true,
   phone: true,
   phoneCountryCode: true,
@@ -147,6 +153,71 @@ export class UsersService {
 
   findAll(): Promise<User[]> {
     return this.prisma.user.findMany();
+  }
+
+  async getUsers(query: GetUsersQueryDto) {
+    const where: Prisma.UserWhereInput = {
+      role: {
+        not: UserRole.ADMIN,
+      },
+    };
+
+    if (query.username?.trim()) {
+      where.OR = [
+        {
+          firstname: {
+            contains: query.username.trim(),
+            mode: 'insensitive',
+          },
+        },
+        {
+          lastname: {
+            contains: query.username.trim(),
+            mode: 'insensitive',
+          },
+        },
+      ];
+    }
+
+    if (query.role) {
+      where.role = query.role;
+    }
+
+    if (query.country) {
+      where.country = query.country;
+    }
+
+    const [items, totalCount] = await this.prisma.$transaction([
+      this.prisma.user.findMany({
+        where,
+        orderBy: {
+          createdAt: query.sortDir ?? 'desc',
+        },
+        skip: query.page * query.take,
+        take: query.take,
+
+        select: {
+          id: true,
+          firstname: true,
+          lastname: true,
+          email: true,
+          avatar: true,
+          country: true,
+          createdAt: true,
+          isBlocked: true,
+          role: true,
+        },
+      }),
+
+      this.prisma.user.count({
+        where,
+      }),
+    ]);
+
+    return {
+      paginatedResult: items,
+      totalCount,
+    };
   }
 
   async getProfile(id: string) {
@@ -293,5 +364,37 @@ export class UsersService {
 
   remove(id: string): Promise<User> {
     return this.prisma.user.delete({ where: { id } });
+  }
+
+  async blockUser(userId: string) {
+    const result = await this.prisma.user.updateMany({
+      where: { id: userId, isBlocked: false },
+      data: { isBlocked: true },
+    });
+    if (result.count === 0) {
+      const exists = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true },
+      });
+      if (!exists) throw new NotFoundException('User not found');
+      throw new ConflictException('This user is already blocked');
+    }
+    return this.findByIdSafe(userId);
+  }
+
+  async unblockUser(userId: string) {
+    const result = await this.prisma.user.updateMany({
+      where: { id: userId, isBlocked: true },
+      data: { isBlocked: false },
+    });
+    if (result.count === 0) {
+      const exists = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true },
+      });
+      if (!exists) throw new NotFoundException('User not found');
+      throw new ConflictException('This user is not blocked');
+    }
+    return this.findByIdSafe(userId);
   }
 }
