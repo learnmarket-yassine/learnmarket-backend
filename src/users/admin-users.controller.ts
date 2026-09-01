@@ -42,4 +42,8 @@ export class AdminUsersController {
     );
     return user;
   }
+  @Get(':id')
+  getProfile(@Param('id') userId: string) {
+    return this.usersService.getProfile(userId);
+  }
 }

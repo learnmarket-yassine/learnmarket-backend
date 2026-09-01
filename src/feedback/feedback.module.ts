@@ -6,7 +6,11 @@ import { TutorFeedbackController } from './controllers/tutor-feedback.controller
 
 @Module({
   providers: [FeedbackService],
-  controllers: [FeedbackController, TutorRatingController, TutorFeedbackController],
+  controllers: [
+    FeedbackController,
+    TutorRatingController,
+    TutorFeedbackController,
+  ],
   exports: [FeedbackService],
 })
 export class FeedbackModule {}

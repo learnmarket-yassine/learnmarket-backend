@@ -4,7 +4,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { NotificationType, TutorVerificationStatus } from '@prisma/client';
+import {
+  NotificationType,
+  Prisma,
+  TutorVerificationStatus,
+} from '@prisma/client';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ListVerificationsQueryDto } from '../dto/list-verifications-query.dto';
@@ -86,10 +90,10 @@ export class TutorVerificationService {
     });
   }
 
-  async approve(adminId: string, tutorId: string) {
+  async approve(adminId: string, tutorProfileId: string) {
     const result = await this.prisma.tutorProfile.updateMany({
       where: {
-        userId: tutorId,
+        id: tutorProfileId,
         verificationStatus: TutorVerificationStatus.PENDING,
       },
       data: {
@@ -99,24 +103,31 @@ export class TutorVerificationService {
         reviewNote: null,
       },
     });
+
     if (result.count === 0) {
       throw new ConflictException(
         'This profile is no longer pending review -- another admin may have already acted on it',
       );
     }
+
+    const profile = await this.prisma.tutorProfile.findUniqueOrThrow({
+      where: {
+        id: tutorProfileId,
+      },
+    });
+
     await this.notifyVerificationUpdated(
-      tutorId,
+      profile.userId,
       'Your profile was approved. You can now create proposals.',
     );
-    return this.prisma.tutorProfile.findUniqueOrThrow({
-      where: { userId: tutorId },
-    });
+
+    return profile;
   }
 
-  async reject(adminId: string, tutorId: string, reason: string) {
+  async reject(adminId: string, tutorProfileId: string, reason: string) {
     const result = await this.prisma.tutorProfile.updateMany({
       where: {
-        userId: tutorId,
+        id: tutorProfileId,
         verificationStatus: TutorVerificationStatus.PENDING,
       },
       data: {
@@ -129,13 +140,19 @@ export class TutorVerificationService {
     if (result.count === 0) {
       throw new ConflictException('This profile is no longer pending review');
     }
+
+    const profile = await this.prisma.tutorProfile.findUniqueOrThrow({
+      where: {
+        id: tutorProfileId,
+      },
+    });
+
     await this.notifyVerificationUpdated(
-      tutorId,
+      profile.userId,
       'Your verification submission was rejected. Check your profile for details.',
     );
-    return this.prisma.tutorProfile.findUniqueOrThrow({
-      where: { userId: tutorId },
-    });
+
+    return profile;
   }
 
   async revoke(adminId: string, tutorId: string, reason: string) {
@@ -174,19 +191,52 @@ export class TutorVerificationService {
 
   async listPendingVerifications(query: ListVerificationsQueryDto) {
     const { page, take } = query;
+
+    const where: Prisma.TutorProfileWhereInput = {
+      verificationStatus: TutorVerificationStatus.PENDING,
+    };
+
     const [items, totalCount] = await this.prisma.$transaction([
       this.prisma.tutorProfile.findMany({
-        where: { verificationStatus: TutorVerificationStatus.PENDING },
-        orderBy: { submittedAt: 'asc' },
+        where,
+        orderBy: {
+          submittedAt: 'asc',
+        },
         skip: page * take,
         take,
-        include: { user: { select: VERIFICATION_QUEUE_USER_SELECT } },
+
+        select: {
+          id: true,
+          submittedAt: true,
+          verificationStatus: true,
+          user: {
+            select: VERIFICATION_QUEUE_USER_SELECT,
+          },
+          certifications: {
+            select: {
+              id: true,
+              credentialUrl: true,
+              files: {
+                select: {
+                  fileName: true,
+                  mimeType: true,
+                  id: true,
+                },
+              },
+            },
+          },
+        },
       }),
+
       this.prisma.tutorProfile.count({
-        where: { verificationStatus: TutorVerificationStatus.PENDING },
+        where,
       }),
     ]);
-    return { paginatedResult: items, totalCount };
+
+    return {
+      paginatedResult: items,
+      totalCount,
+    };
   }
 
   async getVerificationDetail(tutorId: string) {
