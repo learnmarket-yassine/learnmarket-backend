@@ -52,4 +52,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
   CMD curl -fsS http://localhost:3000/api/v1/health || exit 1
 
 ENTRYPOINT ["/sbin/tini","--"]
-CMD ["node","dist/main.js"]
+CMD ["node","dist/src/main.js"]
