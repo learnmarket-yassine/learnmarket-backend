@@ -75,7 +75,7 @@
     "@types/passport-jwt": "^4.0.1",
     "@types/supertest": "^7.0.0",
     "@types/twig": "^1.12.17",
-    "eslint": "^9.18.0",
+    "eslint": "^10.7.0",
     "eslint-config-prettier": "^10.0.1",
     "eslint-plugin-prettier": "^5.2.2",
     "globals": "^17.0.0",
