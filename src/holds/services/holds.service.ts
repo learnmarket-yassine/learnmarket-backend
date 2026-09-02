@@ -18,16 +18,6 @@ import { SessionsService } from '../../sessions/services/sessions.service';
 import { CreateHoldDto } from '../dto/create-hold.dto';
 
 const HOLD_DURATION_MS = 10 * 60 * 1000;
-
-// States a learner may request a new hold from. PENDING_SCHEDULE and
-// CANCELLED are the "obviously reschedulable" cases. HELD is included too
-// even though the normal UI path resumes an in-progress hold instead of
-// re-requesting one -- releaseSlotHold is fired-and-forgotten from the
-// client (see useBookingFlow's chooseDifferentTime), so a new hold request
-// can land before that release's session-status reset has committed. Since
-// createSlotHold upserts by sessionId, re-holding a HELD session is always
-// safe; only LOCKED (not this learner's turn yet) and the terminal
-// BOOKED/COMPLETED states should actually reject.
 const HOLD_REQUESTABLE_STATUSES: SessionStatus[] = [
   SessionStatus.PENDING_SCHEDULE,
   SessionStatus.HELD,
@@ -88,10 +78,6 @@ export class HoldsService {
     try {
       return await this.withDeadlockRetry(() =>
         this.prisma.$transaction(async (tx) => {
-          // Same-tutor stale-hold cleanup. RETURNING captures which
-          // sessions were actually affected so their status can be
-          // unwound from HELD back to PENDING_SCHEDULE -- these may be
-          // entirely different sessions than the one being held below.
           const expired = await tx.$queryRaw<{ session_id: string }[]>`
             UPDATE "slot_holds" SET status = 'EXPIRED'
             WHERE tutor_id = ${tutorId} AND status = 'ACTIVE' AND expires_at <= now()
@@ -165,10 +151,6 @@ export class HoldsService {
           if (result.count === 0) {
             throw new GoneException('This hold has expired');
           }
-
-          // Booking.sessionId is @unique -- a rescheduled session already has
-          // a (CANCELLED) Booking row for it, from the reschedule endpoint.
-          // Revive that same row rather than inserting a second one.
           const existingBooking = await tx.booking.findUnique({
             where: { sessionId: hold.sessionId },
           });
@@ -210,15 +192,8 @@ export class HoldsService {
       this.handleOverlapError(error, 'no_overlapping_confirmed_bookings');
     }
 
-    // Daily.co provisioning/update happens outside the transaction and must
-    // never block a booking that has already been confirmed -- a Daily.co
-    // outage degrades to "session shows not_provisioned, tutor can retry",
-    // not a failed booking. Both calls already swallow their own errors;
-    // this try/catch is defense-in-depth around the DB update they perform.
     try {
       if (isReschedule) {
-        // Same Daily room, new time -- provisionMeeting would no-op here
-        // since dailyRoomUrl is already set.
         await this.sessionsService.updateMeetingTime(booking.sessionId!);
       } else {
         await this.sessionsService.provisionMeeting(booking.sessionId!);

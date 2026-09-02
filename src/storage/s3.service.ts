@@ -29,8 +29,6 @@ export class S3Service {
 
     this.client = new S3Client({
       region,
-      // Omitted in production: the SDK falls back to the default provider
-      // chain (IAM role) when explicit credentials aren't set.
       ...(accessKeyId && secretAccessKey
         ? { credentials: { accessKeyId, secretAccessKey } }
         : {}),

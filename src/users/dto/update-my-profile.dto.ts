@@ -1,7 +1,12 @@
-import { IsDateString, IsOptional, IsString, MaxLength } from 'class-validator';
+import {
+  IsDateString,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsStrongPassword,
+  MaxLength,
+} from 'class-validator';
 
-// Self-service profile update — deliberately excludes email/password/role,
-// unlike UpdateUserDto which is meant for admin-style management by id.
 export class UpdateMyProfileDto {
   @IsOptional()
   @IsString()
@@ -61,4 +66,28 @@ export class UpdateMyProfileDto {
   @IsString()
   @MaxLength(20)
   postalCode?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @IsStrongPassword({
+    minLength: 8,
+    minLowercase: 1,
+    minUppercase: 1,
+    minNumbers: 1,
+    minSymbols: 1,
+  })
+  newPassword!: string;
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @IsStrongPassword({
+    minLength: 8,
+    minLowercase: 1,
+    minUppercase: 1,
+    minNumbers: 1,
+    minSymbols: 1,
+  })
+  oldPassword!: string;
 }
