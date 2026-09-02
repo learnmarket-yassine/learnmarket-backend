@@ -314,6 +314,11 @@ jobs:
 
       - name: Deploy to EC2
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          ADMIN_FIRSTNAME: ${{ secrets.ADMIN_FIRSTNAME }}
+          ADMIN_LASTNAME: ${{ secrets.ADMIN_LASTNAME }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
@@ -321,6 +326,7 @@ jobs:
           port: 22
           timeout: 300s
           command_timeout: 15m
+          envs: ADMIN_EMAIL,ADMIN_PASSWORD,ADMIN_FIRSTNAME,ADMIN_LASTNAME
           script: |
             set -e
 
@@ -341,6 +347,18 @@ jobs:
               exit 1
             fi
             echo "Migrations applied"
+
+            echo "Seeding production admin..."
+            if ! docker compose run --rm \
+              -e ADMIN_EMAIL \
+              -e ADMIN_PASSWORD \
+              -e ADMIN_FIRSTNAME \
+              -e ADMIN_LASTNAME \
+              api npm run seed:admin:prod; then
+              echo "Admin seed failed"
+              exit 1
+            fi
+            echo "Production admin ready"
 
             echo "Restarting api container..."
             docker compose up -d --force-recreate api
