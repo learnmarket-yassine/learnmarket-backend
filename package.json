@@ -19,6 +19,7 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "seed:admin": "ts-node prisma/seed-admin.ts",
+    "seed:admin:prod": "node dist/prisma/seed-admin.js",
     "docker:build": "docker build -t learnmarket-backend:dev .",
     "docker:run": "docker run --rm --name learnmarket-backend-test --network learnmarket-network -p 3000:3000 --env-file .env.docker learnmarket-backend:dev",
     "docker:logs": "docker logs -f learnmarket-backend-test",
@@ -89,9 +90,6 @@
     "tsconfig-paths": "^4.2.0",
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.20.0"
-  },
-  "prisma": {
-    "seed": "ts-node prisma/seed.ts"
   },
   "jest": {
     "moduleFileExtensions": [

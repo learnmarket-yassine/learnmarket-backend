@@ -13,7 +13,7 @@ COPY . .
 
 RUN npx prisma generate
 RUN npm run build
-
+RUN npx tsc prisma/seed-admin.ts --outDir dist/prisma --module commonjs --target ES2023 --esModuleInterop --skipLibCheck
 FROM node:20-alpine AS prod-deps
 
 RUN apk add --no-cache libc6-compat openssl python3 make g++
