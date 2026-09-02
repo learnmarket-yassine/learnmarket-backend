@@ -39,11 +39,6 @@ export class UploadService {
     return { key, uploadUrl: url, expiresIn };
   }
 
-  /**
-   * Verifies a client-reported key actually belongs to this owner/purpose and
-   * matches the uploaded object's real size/type before it's persisted to the DB.
-   * Guards against a client lying in the presign step or replaying someone else's key.
-   */
   async finalize(
     ownerId: string,
     purpose: UploadPurpose,

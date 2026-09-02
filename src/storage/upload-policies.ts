@@ -76,7 +76,6 @@ export function getUploadPolicy(purpose: UploadPurpose): UploadPolicy {
   return UPLOAD_POLICIES[purpose];
 }
 
-/** Keys are namespaced as `{prefix}/{ownerId}/{uuid}.{ext}` so ownership can be verified without a DB round trip. */
 export function assertKeyOwnership(
   key: string,
   purpose: UploadPurpose,

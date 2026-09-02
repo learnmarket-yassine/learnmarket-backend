@@ -13,11 +13,6 @@ export interface PlatformSettingsValues {
 
 @Injectable()
 export class PlatformSettingsService {
-  // Read on every proposal creation and fee calculation, so a DB round trip
-  // per read would be wasteful for a value that only an admin ever changes.
-  // A short TTL (rather than invalidate-on-write only) means other app
-  // instances behind a load balancer pick up an admin's change on their own
-  // within CACHE_TTL_MS, without needing any cross-instance invalidation.
   private cached: { value: PlatformSettingsValues; expiresAt: number } | null =
     null;
 

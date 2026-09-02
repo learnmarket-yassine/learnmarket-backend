@@ -2,6 +2,7 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -11,6 +12,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { UploadService } from '../storage/upload.service';
 import { UploadPurpose } from '../storage/upload-purpose.enum';
 import { GetUsersQueryDto } from './dto/get-users-dto';
+import * as argon2 from 'argon2';
 
 const TUTOR_PROFILE_INCLUDE = {
   skills: { include: { skill: true } },
@@ -257,13 +259,61 @@ export class UsersService {
   }
 
   async updateMyProfile(userId: string, dto: UpdateMyProfileDto) {
-    const user = await this.prisma.user.update({
+    const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      data: dto,
+      select: {
+        password: true,
+      },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    const { oldPassword, newPassword, ...profileData } = dto;
+
+    // Password change requested
+    if (newPassword) {
+      if (!oldPassword) {
+        throw new ConflictException(
+          'Old password is required to change your password',
+        );
+      }
+
+      if (!user.password) {
+        throw new ConflictException('This account does not have a password');
+      }
+
+      // Verify current password
+      const isPasswordValid = await argon2.verify(user.password, oldPassword);
+
+      if (!isPasswordValid) {
+        throw new UnauthorizedException('Old password is incorrect');
+      }
+
+      // Hash the new password
+      const passwordHash = await argon2.hash(newPassword);
+
+      const updatedUser = await this.prisma.user.update({
+        where: { id: userId },
+        data: {
+          ...profileData,
+          password: passwordHash,
+        },
+        select: PROFILE_SELECT,
+      });
+
+      return this.buildOwnProfileResponse(updatedUser);
+    }
+
+    // No password change
+    const updatedUser = await this.prisma.user.update({
+      where: { id: userId },
+      data: profileData,
       select: PROFILE_SELECT,
     });
 
-    return this.buildOwnProfileResponse(user);
+    return this.buildOwnProfileResponse(updatedUser);
   }
 
   async removeAvatar(userId: string) {
