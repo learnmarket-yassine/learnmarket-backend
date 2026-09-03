@@ -219,10 +219,6 @@ export class HoldsService {
     });
     if (!hold) throw new NotFoundException('Slot hold not found');
 
-    // Guarded like confirmSlotHold: only a genuinely ACTIVE hold gets
-    // released. If confirmSlotHold already converted it (or another
-    // release call already expired it), this is a correct no-op --
-    // never overwrite a CONVERTED hold's terminal state.
     await this.prisma.$transaction(async (tx) => {
       const released = await tx.slotHold.updateMany({
         where: { id: slotHoldId, status: 'ACTIVE' },

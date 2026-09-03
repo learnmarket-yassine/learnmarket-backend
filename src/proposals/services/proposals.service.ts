@@ -169,18 +169,12 @@ export class ProposalsService {
         where: { id: proposal.id },
         include: PROPOSAL_INCLUDE,
       });
-      // Reuses the serviceFeePercent already fetched above instead of
-      // calling withFeeBreakdown (which would fetch it again) -- avoids an
-      // extra query on an unrelated connection while this transaction's
-      // connection is still checked out and idle-in-transaction.
       return {
         ...created,
         ...getFeeBreakdown(Number(created.totalPrice), serviceFeePercent),
       };
     });
 
-    // Fired after the transaction commits -- a notification for a proposal
-    // that ultimately didn't get created would be worse than a missed one.
     await this.notifications.create(
       learnRequest.learnerId,
       NotificationType.PROPOSAL_RECEIVED,

@@ -37,11 +37,6 @@ export class MessagingController {
     @Param('id') id: string,
     @Body() dto: SendMessageDto,
   ) {
-    // REST fallback if the socket isn't connected -- delegates to the
-    // exact same service method the gateway uses. Does NOT emit a socket
-    // broadcast itself -- if used, the recipient sees the message on
-    // next fetch/reconnect, not instantly. Acceptable degradation for a
-    // fallback path.
     return this.messaging.sendMessage(userId, id, dto.content);
   }
 

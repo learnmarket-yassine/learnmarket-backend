@@ -22,8 +22,6 @@ export class BookingsService {
         startTime: true,
         endTime: true,
         sessionId: true,
-        // proposalId lets the frontend route a tutor's booking to its
-        // /jobs/:proposalId details page.
         session: { select: { title: true, proposalId: true } },
         learner: { select: { firstname: true, lastname: true } },
       },
@@ -39,8 +37,6 @@ export class BookingsService {
         startTime: true,
         endTime: true,
         sessionId: true,
-        // learnRequestId lets the frontend route a learner's booking to its
-        // /learn-requests/:learnRequestId details page.
         session: {
           select: {
             title: true,
@@ -58,8 +54,6 @@ export class BookingsService {
     });
     if (!booking) throw new NotFoundException('Booking not found');
     if (booking.tutorId !== userId && booking.learnerId !== userId) {
-      // 404, not 403 -- matches assertParticipant's ownership-check pattern
-      // in SessionsService (a booking is reachable only via its session).
       throw new NotFoundException('Booking not found');
     }
     if (booking.status !== 'CONFIRMED') {

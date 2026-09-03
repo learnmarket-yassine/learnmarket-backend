@@ -8,8 +8,6 @@ import { NotificationsService } from './notifications.service';
   imports: [AuthModule],
   providers: [NotificationsService, NotificationsGateway],
   controllers: [NotificationsController],
-  // Exported for the domain services that trigger in-app notifications
-  // (proposals, payments, holds, sessions, tutor-verification).
   exports: [NotificationsService],
 })
 export class NotificationsModule {}

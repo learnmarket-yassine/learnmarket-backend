@@ -129,9 +129,6 @@ export class PaymentsService {
       );
     }
 
-    // Read before the transaction flips these sessions to CANCELLED --
-    // dailyRoomName isn't touched by that update either way, but the rooms
-    // still need cleaning up afterward, outside the DB transaction.
     const sessionsToCleanup = await this.prisma.session.findMany({
       where: {
         proposalId,
@@ -161,9 +158,6 @@ export class PaymentsService {
 
     await this.cancelAndRefund(proposalId, reason);
 
-    // Daily room cleanup happens outside the transaction and must never
-    // block a cancellation/refund that already committed -- matches
-    // confirmSlotHold's decoupled try/catch pattern around Daily calls.
     for (const session of sessionsToCleanup) {
       try {
         await this.dailyService.deleteRoom(session.dailyRoomName!);

@@ -11,12 +11,6 @@ export class TutorConnectService {
     private readonly config: ConfigService,
   ) {}
 
-  /**
-   * Creates the tutor's Stripe Connect account on first call (idempotency
-   * key scoped to tutorId means a retried click never creates a second
-   * account), reusing it on every subsequent call -- so "Connect payout
-   * account" and "Resume setup" are the same endpoint.
-   */
   async getOnboardingLink(tutorId: string): Promise<{ url: string }> {
     const tutorProfile = await this.prisma.tutorProfile.findUnique({
       where: { userId: tutorId },

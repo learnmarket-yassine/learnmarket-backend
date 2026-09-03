@@ -39,8 +39,6 @@ export class AssignmentsService {
     private readonly uploadService: UploadService,
   ) {}
 
-  // Point-in-time computed label -- never stored, so there's nothing to keep
-  // in sync via a background job.
   private computeDisplayStatus(
     status: SubmissionStatus,
     dueAt: Date | null,
@@ -114,8 +112,6 @@ export class AssignmentsService {
       await tx.assignmentSubmission.create({
         data: { assignmentId: created.id },
       });
-      // Re-fetch with the full include now that the submission row exists --
-      // the initial create's include would have run before it was created.
       const assignment = await tx.assignment.findUniqueOrThrow({
         where: { id: created.id },
         include: ASSIGNMENT_INCLUDE,
@@ -162,9 +158,7 @@ export class AssignmentsService {
     });
     if (!assignment) throw new NotFoundException('Assignment not found');
     if (assignment.submission?.status !== SubmissionStatus.ASSIGNED) {
-      throw new ConflictException(
-        'This assignment can no longer be edited',
-      );
+      throw new ConflictException('This assignment can no longer be edited');
     }
 
     const attachments: {
@@ -240,7 +234,10 @@ export class AssignmentsService {
 
     const assignment = await this.prisma.assignment.findUnique({
       where: { sessionId },
-      include: { submission: { include: { attachments: true } }, attachments: true },
+      include: {
+        submission: { include: { attachments: true } },
+        attachments: true,
+      },
     });
     if (!assignment) throw new NotFoundException('Assignment not found');
 
@@ -429,7 +426,11 @@ export class AssignmentsService {
     return this.uploadService.getSignedDownloadUrl(attachment.key);
   }
 
-  async addComment(userId: string, assignmentId: string, dto: CreateCommentDto) {
+  async addComment(
+    userId: string,
+    assignmentId: string,
+    dto: CreateCommentDto,
+  ) {
     await this.assertAssignmentParticipant(userId, assignmentId);
 
     return this.prisma.assignmentComment.create({

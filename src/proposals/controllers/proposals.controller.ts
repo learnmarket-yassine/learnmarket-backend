@@ -44,8 +44,6 @@ export class ProposalsController {
     return this.proposals.findAllForViewer(viewer);
   }
 
-  // Must stay registered before 'proposals/:id' -- otherwise Nest matches
-  // the literal segment "mine" as the :id param instead.
   @Get('proposals/mine')
   @Roles(UserRole.TUTOR)
   findMyProposals(
@@ -82,9 +80,4 @@ export class ProposalsController {
   withdraw(@CurrentUser('id') tutorId: string, @Param('id') id: string) {
     return this.proposals.withdraw(tutorId, id);
   }
-
-  // Hiring a tutor now requires a successful Stripe payment before the
-  // proposal is accepted -- see PaymentsController's
-  // `POST proposals/:id/checkout`. Acceptance itself only ever happens via
-  // the payment_intent.succeeded webhook (ProposalsService.runAcceptTransaction).
 }

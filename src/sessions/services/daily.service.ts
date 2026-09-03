@@ -74,8 +74,6 @@ export class DailyService {
       `${DAILY_API_BASE}/rooms/${encodeURIComponent(roomName)}`,
       { method: 'DELETE', headers: this.authHeaders() },
     );
-    // A room that's already gone is not a failure -- deleteRoom is called
-    // from decoupled cleanup paths that must never throw on "already deleted".
     if (!response.ok && response.status !== 404) {
       throw new Error(
         `Daily delete-room request failed with status ${response.status}`,
@@ -92,9 +90,6 @@ export class DailyService {
           room_name: params.roomName,
           user_id: params.userId,
           user_name: params.userName,
-          // is_owner is computed strictly server-side by the caller from the
-          // requester's real participant role -- never accept this as a
-          // client-supplied hint.
           is_owner: params.isOwner,
           exp: unixSeconds(params.expiresAt),
         },
