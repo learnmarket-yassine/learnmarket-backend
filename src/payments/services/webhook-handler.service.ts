@@ -157,8 +157,6 @@ export class WebhookHandlerService {
       );
       return;
     }
-    // No further action -- the Proposal was never touched, nothing to roll
-    // back. The learner can simply retry checkout.
     await tx.payment.update({
       where: { id: payment.id },
       data: { status: PaymentStatus.FAILED },
@@ -218,9 +216,6 @@ export class WebhookHandlerService {
       },
     });
 
-    // A real chargeback -- silently doing nothing here is not acceptable
-    // for a payment module. No admin-notification channel exists yet
-    // beyond logging + Sentry + the admin-readable PaymentDispute record.
     this.logger.error(
       `Stripe dispute created: paymentId=${payment.id} amount=${dispute.amount / 100} disputeId=${dispute.id}`,
     );

@@ -37,8 +37,6 @@ import { TutorSpecialtiesController } from './controllers/tutor-specialties.cont
     TutorSkillsController,
     TutorSpecialtiesController,
   ],
-  // CertificationService is consumed by TutorVerificationModule's admin
-  // review flow (fetching a signed URL for a certification file).
   exports: [CertificationService],
 })
 export class TutorModule {}

@@ -116,4 +116,15 @@ export class StripeService {
       this.config.getOrThrow<string>('STRIPE_WEBHOOK_SECRET'),
     );
   }
+
+  constructConnectWebhookEvent(
+    payload: Buffer,
+    signature: string,
+  ): Stripe.Event {
+    return this.stripe.webhooks.constructEvent(
+      payload,
+      signature,
+      this.config.getOrThrow<string>('STRIPE_CONNECT_WEBHOOK_SECRET'),
+    );
+  }
 }

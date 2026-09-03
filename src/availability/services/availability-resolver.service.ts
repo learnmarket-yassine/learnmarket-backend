@@ -110,10 +110,6 @@ export class AvailabilityResolverService {
       allSlots.push(...chunkIntoSlots(windows, durationMs));
     }
 
-    // The only place `now()` may influence the result: dropping slots whose
-    // start has already elapsed. It must never be an ingredient of slot
-    // generation itself, or the same conceptual slot would compute a
-    // different timestamp depending on what millisecond the request landed on.
     return allSlots
       .filter((slot) => slot.getTime() >= now.getTime())
       .sort((a, b) => a.getTime() - b.getTime());

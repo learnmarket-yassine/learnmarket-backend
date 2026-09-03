@@ -16,9 +16,6 @@ export class NotificationsGateway implements OnGatewayConnection {
 
   constructor(private readonly authService: AuthService) {}
 
-  // Same handshake-auth pattern as MessagingGateway/PaymentsGateway: reject
-  // unauthenticated sockets outright, then join a private per-user room so
-  // a notification can never reach anyone but its owner.
   async handleConnection(client: Socket) {
     try {
       const token = client.handshake.auth?.token as string | undefined;

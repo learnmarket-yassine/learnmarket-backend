@@ -26,9 +26,6 @@ import { GetLearnRequestsQueryDto } from '../dto/list-learn-requests-query.dto';
 import { GetProposalsForRequestQueryDto } from '../dto/get-proposals-for-request-query.dto';
 import { LearnRequestValidationService } from './learn-request-validation.service';
 
-// Mirrors the frontend's ACTIONABLE_SESSION_STATUSES (learner-booking
-// feature) -- sessions the learner still has something to do on. Used to
-// decide whether a CLOSED learn request needs the learner's attention.
 const SESSION_NEEDS_ACTION_STATUSES: SessionStatus[] = [
   SessionStatus.PENDING_SCHEDULE,
   SessionStatus.HELD,
@@ -67,9 +64,6 @@ export function buildListInclude(user: Pick<AuthUser, 'id' | 'role'>) {
       orderBy: { createdAt: 'desc' },
       include: PROPOSAL_INCLUDE,
     },
-    // Only a tutor can have saved anything; scoping to their own id turns
-    // "did I save this" into a plain boolean below instead of leaking the
-    // raw join-table rows to the frontend.
     savedBy:
       user.role === UserRole.TUTOR
         ? { where: { tutorId: user.id } }
@@ -77,10 +71,6 @@ export function buildListInclude(user: Pick<AuthUser, 'id' | 'role'>) {
   } satisfies Prisma.LearnRequestInclude;
 }
 
-// Only the owning learner can have shortlisted anything on their own
-// request; a tutor viewing their own proposal here has no reason to see
-// shortlist state, so the include is skipped for them entirely rather than
-// always resolving to false.
 function buildProposalListInclude(user: Pick<AuthUser, 'id' | 'role'>) {
   return {
     ...PROPOSAL_INCLUDE,
@@ -99,10 +89,6 @@ function buildDetailInclude() {
   return {
     category: true,
     skills: { include: { skill: true } },
-    // At most one -- accept() closes the request and declines every other
-    // proposal, so ACCEPTED is unique per learn request. Powers the
-    // booking step on the details page: the accepted proposal (and its
-    // sessions) is scoped there, not the full proposals list.
     proposals: {
       where: { status: ProposalStatus.ACCEPTED },
       include: PROPOSAL_INCLUDE,
@@ -357,11 +343,6 @@ export class LearnRequestsService {
     }
 
     return this.prisma.$transaction(async (tx) => {
-      // Status-guarded updateMany, not a blind update -- same discipline as
-      // the accept-transaction guards elsewhere in this codebase, so a
-      // concurrent state change (e.g. a proposal getting accepted at the
-      // same moment) can't leave this transaction cancelling a request that
-      // no longer qualifies.
       const cancelled = await tx.learnRequest.updateMany({
         where: { id, status: LearnRequestStatus.OPEN },
         data: { status: LearnRequestStatus.CANCELLED },
@@ -372,10 +353,6 @@ export class LearnRequestsService {
         );
       }
 
-      // A cancelled-before-review request is a loss through no fault of the
-      // tutor's own proposal quality -- refund every still-PENDING
-      // proposal's spent Sparks (unlike a learner declining a proposal,
-      // which does not refund).
       const pendingProposals = await tx.proposal.findMany({
         where: { learnRequestId: id, status: ProposalStatus.PENDING },
         select: { id: true },

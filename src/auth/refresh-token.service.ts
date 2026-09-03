@@ -232,7 +232,6 @@ export class RefreshTokenService implements OnModuleInit {
     });
 
     // TTL is derived from the token's own exp/iat rather than re-parsed
-    // from the env string, so it can never drift from what was signed.
     const decoded = this.jwtService.decode<{ exp: number; iat: number }>(token);
     const ttlSeconds = decoded.exp - decoded.iat;
 

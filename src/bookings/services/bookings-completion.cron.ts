@@ -50,7 +50,6 @@ export class BookingsCompletionCron {
         }
 
         if (!booking.session.tutorJoinedAt) {
-          // No-show -- unchanged immediate-completion behavior. Nothing to
           // summarize or confirm for a session the tutor never attended.
           await tx.booking.update({
             where: { id: booking.id },
@@ -62,10 +61,6 @@ export class BookingsCompletionCron {
           );
         }
 
-        // Tutor attendance verified -- enter the parallel confirmation gate
-        // instead of completing immediately. Booking stays CONFIRMED (there
-        // is no PENDING_REVIEW BookingStatus) until both gate branches
-        // resolve and completeSessionCascade runs from there.
         await tx.session.update({
           where: { id: booking.session.id },
           data: { status: SessionStatus.PENDING_REVIEW },

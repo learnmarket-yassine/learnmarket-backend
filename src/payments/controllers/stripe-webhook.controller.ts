@@ -21,4 +21,17 @@ export class StripeWebhookController {
     const event = this.stripe.constructWebhookEvent(req.rawBody!, signature);
     return this.webhookHandler.handle(event);
   }
+
+  @Public()
+  @Post('connect')
+  async handleConnect(
+    @Req() req: RawBodyRequest<Request>,
+    @Headers('stripe-signature') signature: string,
+  ) {
+    const event = this.stripe.constructConnectWebhookEvent(
+      req.rawBody!,
+      signature,
+    );
+    return this.webhookHandler.handle(event);
+  }
 }

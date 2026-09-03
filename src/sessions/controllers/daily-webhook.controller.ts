@@ -28,11 +28,9 @@ export class DailyWebhookController {
     @Headers('x-webhook-timestamp') timestamp: string,
     @Headers('x-webhook-signature') signature: string,
   ) {
-    // Signature verification happens BEFORE anything else touches the
-    // payload -- same discipline as the Stripe webhook. An unverified
-    // endpoint here would let anyone forge attendance/no-show outcomes,
-    // which directly drives payout routing.
-    if (!this.daily.verifyWebhookSignature(req.rawBody!, timestamp, signature)) {
+    if (
+      !this.daily.verifyWebhookSignature(req.rawBody!, timestamp, signature)
+    ) {
       throw new BadRequestException('Invalid webhook signature');
     }
 

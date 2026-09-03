@@ -15,9 +15,6 @@ export class NotificationsService {
     private readonly gateway: NotificationsGateway,
   ) {}
 
-  // Persists the notification, then pushes it in real time. Delivery is
-  // best-effort on top of a durable write -- a disconnected/absent socket
-  // just means the user sees it next time they open the bell/list.
   async create(
     userId: string,
     type: NotificationType,
@@ -65,8 +62,6 @@ export class NotificationsService {
   async markAsRead(userId: string, notificationId: string) {
     const notification = await this.findOne(notificationId);
     if (notification.userId !== userId) {
-      // 404, not 403 -- matches the ownership-check pattern used elsewhere
-      // in this codebase (e.g. SessionsService.assertParticipant).
       throw new NotFoundException('Notification not found');
     }
     if (notification.isRead) return notification;

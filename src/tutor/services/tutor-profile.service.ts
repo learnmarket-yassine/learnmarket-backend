@@ -65,12 +65,6 @@ export class TutorProfileService {
     return profile.id;
   }
 
-  // Learner-facing public profile -- only exposes fields safe to show to
-  // anyone (no email/phone/address/stripe/verification-review internals),
-  // and only for tutors who have actually cleared verification. An
-  // unverified tutor never has an accepted proposal (see ProposalsService),
-  // so gating on APPROVED here doesn't hide anyone a learner could
-  // otherwise be working with.
   async findPublicByUserId(tutorId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: tutorId },
