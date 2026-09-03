@@ -94,6 +94,26 @@ describe('LearnRequestsService.findMany', () => {
     expect(where.AND[1]).not.toHaveProperty('status');
   });
 
+  it("scopes a TUTOR's default feed to categories covered by their specialties", async () => {
+    await service.findMany(
+      user({ id: 'tutor-1', role: UserRole.TUTOR }),
+      query(),
+    );
+
+    const { where } = lastFindManyArgs();
+    expect(where.AND[1]).toMatchObject({
+      category: {
+        specialties: {
+          some: {
+            tutorProfiles: {
+              some: { profile: { userId: 'tutor-1' } },
+            },
+          },
+        },
+      },
+    });
+  });
+
   it('never applies a TUTOR-supplied status filter even when combined with level/budget filters, so a TUTOR still only receives OPEN results', async () => {
     prisma.learnRequest.findMany.mockResolvedValue([
       learnRequest({ id: 'lr-open', status: LearnRequestStatus.OPEN }),

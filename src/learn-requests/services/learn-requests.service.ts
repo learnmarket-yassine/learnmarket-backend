@@ -141,10 +141,34 @@ export class LearnRequestsService {
           : { learnerId: user.id }; // LEARNER: own requests, any status
 
     const narrowingWhere: Prisma.LearnRequestWhereInput = {};
+    if (user.role === UserRole.TUTOR) {
+      narrowingWhere.category = {
+        specialties: {
+          some: {
+            tutorProfiles: {
+              some: { profile: { userId: user.id } },
+            },
+          },
+        },
+      };
+    }
     if (query.categoryId) narrowingWhere.categoryId = query.categoryId;
     if (query.type?.length) narrowingWhere.type = { in: query.type };
     if (query.search) {
-      narrowingWhere.title = { contains: query.search, mode: 'insensitive' };
+      narrowingWhere.OR = [
+        {
+          title: {
+            contains: query.search,
+            mode: 'insensitive',
+          },
+        },
+        {
+          description: {
+            contains: query.search,
+            mode: 'insensitive',
+          },
+        },
+      ];
     }
     if (query.status?.length && user.role !== UserRole.TUTOR) {
       narrowingWhere.status = { in: query.status };
