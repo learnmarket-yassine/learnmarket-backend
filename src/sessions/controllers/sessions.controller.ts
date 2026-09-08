@@ -40,8 +40,12 @@ export class SessionsController {
   }
 
   @Get(':id/meeting')
-  getMeeting(@CurrentUser('id') userId: string, @Param('id') id: string) {
-    return this.sessions.getMeetingDetails(userId, id);
+  getMeeting(
+    @CurrentUser('id') userId: string,
+    @Param('id') id: string,
+    @CurrentUser() viewer: AuthUser,
+  ) {
+    return this.sessions.getMeetingDetails(userId, id, viewer);
   }
 
   // --- Parallel confirmation gate --------------------------------------
