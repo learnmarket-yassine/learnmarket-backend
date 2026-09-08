@@ -9,7 +9,10 @@ import {
   Patch,
   Post,
 } from '@nestjs/common';
-import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import {
+  type AuthUser,
+  CurrentUser,
+} from '../../common/decorators/current-user.decorator';
 import { CreateAnnouncementDto } from '../dto/create-announcement.dto';
 import { CreateCommentDto, UpdateCommentDto } from '../dto/create-comment.dto';
 import { UpdateAnnouncementDto } from '../dto/update-announcement.dto';
@@ -30,8 +33,12 @@ export class AnnouncementsController {
   }
 
   @Get('sessions/:id/announcements')
-  list(@CurrentUser('id') userId: string, @Param('id') id: string) {
-    return this.announcements.list(userId, id);
+  list(
+    @CurrentUser('id') userId: string,
+    @Param('id') id: string,
+    @CurrentUser() viewer: AuthUser,
+  ) {
+    return this.announcements.list(userId, id, viewer);
   }
 
   @Patch('announcements/:id')

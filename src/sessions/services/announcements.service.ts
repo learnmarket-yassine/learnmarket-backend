@@ -10,6 +10,7 @@ import { CreateAnnouncementDto } from '../dto/create-announcement.dto';
 import { CreateCommentDto, UpdateCommentDto } from '../dto/create-comment.dto';
 import { UpdateAnnouncementDto } from '../dto/update-announcement.dto';
 import { SessionsService } from './sessions.service';
+import { AuthUser } from '../../common/decorators/current-user.decorator';
 
 const AUTHOR_SELECT = {
   id: true,
@@ -26,11 +27,7 @@ export class AnnouncementsService {
     private readonly uploadService: UploadService,
   ) {}
 
-  async create(
-    userId: string,
-    sessionId: string,
-    dto: CreateAnnouncementDto,
-  ) {
+  async create(userId: string, sessionId: string, dto: CreateAnnouncementDto) {
     await this.sessions.assertParticipant(userId, sessionId);
 
     const attachments: {
@@ -68,8 +65,8 @@ export class AnnouncementsService {
     });
   }
 
-  async list(userId: string, sessionId: string) {
-    await this.sessions.assertParticipant(userId, sessionId);
+  async list(userId: string, sessionId: string, viewer: AuthUser) {
+    await this.sessions.assertParticipant(userId, sessionId, viewer);
     return this.prisma.announcement.findMany({
       where: { sessionId },
       orderBy: { createdAt: 'desc' },
